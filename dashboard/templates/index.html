@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Autoresearch Dashboard</title>
+  <link rel="stylesheet" href="/static/dashboard.css" />
+</head>
+<body>
+<div class="app-layout">
+
+  <!-- ══════════ HEADER ══════════ -->
+  <header>
+    <div class="logo">AR<span>esearch</span> Monitor</div>
+    <select id="branch-select" class="branch-select" title="Select branch">
+      <option value="">Loading branches…</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted);">
+      <input type="checkbox" id="overlay-mode" />
+      Overlay
+    </label>
+    <div class="sep"></div>
+    <div class="status-dot idle" id="status-dot"></div>
+    <span class="status-label" id="status-label">Idle</span>
+    <span class="eta-label" id="eta-label"></span>
+    <button class="btn danger" id="pause-btn" onclick="togglePause()">Pause</button>
+  </header>
+
+  <!-- ══════════ STATS BAR ══════════ -->
+  <div class="stats-bar">
+    <div class="stat-card">
+      <div class="stat-label">Experiments</div>
+      <div class="stat-value info" id="stat-total">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Best val_bpb</div>
+      <div class="stat-value good" id="stat-best">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Improvement Rate</div>
+      <div class="stat-value" id="stat-impr-rate">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Crashes</div>
+      <div class="stat-value bad" id="stat-crashes">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Avg Δ bpb</div>
+      <div class="stat-value" id="stat-avg-delta">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total Runtime</div>
+      <div class="stat-value" id="stat-runtime">—</div>
+    </div>
+  </div>
+
+  <!-- ══════════ MAIN AREA ══════════ -->
+  <div class="main-area">
+
+    <!-- Chart card -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">val_bpb Progress</span>
+        <div class="card-actions">
+          <button class="btn" onclick="resetZoom()">Reset Zoom</button>
+        </div>
+      </div>
+      <div id="main-chart"></div>
+      <div class="branch-legend" id="branch-legend" style="display:none;"></div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <div class="tab-header">
+        <button class="tab-btn active" onclick="switchTab('log', this)">Experiment Log</button>
+        <button class="tab-btn" onclick="switchTab('analytics', this)">Analytics</button>
+        <button class="tab-btn" onclick="switchTab('diff', this)">Diff Viewer</button>
+      </div>
+
+      <!-- Tab: Experiment Log -->
+      <div class="tab-content active" id="tab-log">
+        <div class="exp-table-wrap">
+          <table id="exp-table">
+            <thead>
+              <tr>
+                <th onclick="sortTable('experiment_number')">#</th>
+                <th onclick="sortTable('val_bpb')">val_bpb</th>
+                <th onclick="sortTable('delta_bpb')">Δ bpb</th>
+                <th onclick="sortTable('peak_vram_mb')">VRAM (MB)</th>
+                <th>Status</th>
+                <th>Description</th>
+                <th>SHA</th>
+              </tr>
+            </thead>
+            <tbody id="exp-tbody">
+              <tr><td colspan="7">
+                <div class="empty-state">
+                  <h3>No experiments yet</h3>
+                  <p>Start the autoresearch agent or generate mock data via <code>POST /api/mock/generate</code>.</p>
+                </div>
+              </td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab: Analytics -->
+      <div class="tab-content" id="tab-analytics">
+        <div class="analytics-grid">
+          <div class="analytics-cell">
+            <div class="analytics-title">Strategy Distribution</div>
+            <div class="analytics-chart" id="chart-strategy"></div>
+          </div>
+          <div class="analytics-cell">
+            <div class="analytics-title">VRAM Trend</div>
+            <div class="analytics-chart" id="chart-vram"></div>
+          </div>
+          <div class="analytics-cell" style="grid-column:1/-1;">
+            <div class="analytics-title">Key Insights</div>
+            <div class="insight-grid" id="insights-grid">
+              <div class="insight"><div class="insight-label">Exp / Hour</div><div class="insight-val" id="ins-rate">—</div></div>
+              <div class="insight"><div class="insight-label">Since Last Improvement</div><div class="insight-val" id="ins-since-improve">—</div></div>
+              <div class="insight"><div class="insight-label">Longest No-Gain Streak</div><div class="insight-val" id="ins-streak">—</div></div>
+              <div class="insight"><div class="insight-label">Avg VRAM (MB)</div><div class="insight-val" id="ins-vram">—</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Diff Viewer -->
+      <div class="tab-content" id="tab-diff">
+        <div class="diff-viewer">
+          <div class="diff-toolbar">
+            <span id="diff-label">Select an experiment row to view its diff</span>
+            <button class="btn" style="margin-left:auto;" onclick="loadCurrentDiff()">Current Working Diff</button>
+          </div>
+          <div id="diff-content"><span style="color:var(--text-dim)">No diff loaded.</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /main-area -->
+
+  <!-- ══════════ SIDEBAR ══════════ -->
+  <div class="sidebar">
+
+    <!-- Progress image -->
+    <div class="sidebar-section">
+      <div class="sidebar-header">progress.png</div>
+      <div class="progress-img-wrap" onclick="window.open('/api/progress-image','_blank')">
+        <img id="progress-img" src="/api/progress-image" alt="progress" onerror="this.style.display='none';document.getElementById('img-placeholder').style.display='flex';" />
+        <div class="img-placeholder" id="img-placeholder" style="display:none;">No progress.png yet</div>
+      </div>
+    </div>
+
+    <!-- Git commit feed -->
+    <div class="sidebar-section flex-1">
+      <div class="sidebar-header">Git Activity</div>
+      <div class="git-feed" id="git-feed">
+        <div class="empty-state" style="padding:20px;">
+          <p>No commits found on experiment branches.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live log -->
+    <div class="sidebar-section">
+      <div class="sidebar-header">Live run.log</div>
+      <div class="live-log" id="live-log">
+        <div class="log-line" style="color:var(--text-dim)">Waiting for run.log…</div>
+      </div>
+    </div>
+
+  </div><!-- /sidebar -->
+
+</div><!-- /app-layout -->
+
+<!-- Toast notifications -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- CDN dependencies loaded at end of body so page renders first -->
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<script src="/static/dashboard.js"></script>
+</body>
+</html>
