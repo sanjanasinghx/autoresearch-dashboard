@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Hospital Network Epidemic Simulation — HRR Networks</title>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0a0e1a;color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-serif;height:100vh;overflow:hidden;display:flex;flex-direction:column}
+#topbar{background:linear-gradient(90deg,#0f172a,#1e293b);border-bottom:1px solid #334155;padding:10px 18px;display:flex;align-items:center;gap:16px;flex-shrink:0;flex-wrap:wrap}
+#topbar h1{font-size:15px;font-weight:700;color:#f1f5f9;letter-spacing:.03em;white-space:nowrap}
+#topbar h1 span{color:#38bdf8}
+.ctrl-group{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.ctrl-label{font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
+select,input[type=range]{background:#1e293b;border:1px solid #475569;color:#e2e8f0;border-radius:5px;padding:4px 8px;font-size:11px;font-family:inherit}
+select:focus,input:focus{outline:none;border-color:#38bdf8}
+.btn{padding:5px 13px;border-radius:5px;border:1px solid #475569;background:#1e293b;color:#e2e8f0;font-size:11px;cursor:pointer;font-family:inherit;transition:all .15s;white-space:nowrap}
+.btn:hover{background:#334155;border-color:#38bdf8;color:#38bdf8}
+.btn.primary{background:#0284c7;border-color:#0284c7;color:#fff}
+.btn.primary:hover{background:#0369a1}
+.btn.danger{background:#dc2626;border-color:#dc2626;color:#fff}
+.btn.danger:hover{background:#b91c1c}
+.btn.active{background:#0284c7;border-color:#38bdf8;color:#fff}
+#sep{flex:1}
+#main{display:flex;flex:1;overflow:hidden}
+#map-panel{flex:1;position:relative;overflow:hidden}
+#graph-div{width:100%;height:100%}
+#side-panel{width:310px;background:#0f172a;border-left:1px solid #1e293b;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
+#stat-cards{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:10px}
+.stat-card{background:#1e293b;border:1px solid #334155;border-radius:7px;padding:8px 10px;text-align:center}
+.stat-card .val{font-size:20px;font-weight:700;color:#38bdf8;line-height:1}
+.stat-card .lbl{font-size:9px;color:#94a3b8;margin-top:3px;text-transform:uppercase;letter-spacing:.05em}
+.stat-card.detected .val{color:#f59e0b}
+.stat-card.infected .val{color:#ef4444}
+.stat-card.recovered .val{color:#10b981}
+#curve-div{flex:1;min-height:0}
+#info-box{margin:0 10px 8px;background:#1e293b;border:1px solid #334155;border-radius:7px;padding:10px;font-size:11px;min-height:90px}
+#info-box h3{font-size:12px;font-weight:600;color:#f1f5f9;margin-bottom:6px}
+#info-box .row{display:flex;justify-content:space-between;color:#94a3b8;margin-top:3px}
+#info-box .row span{color:#e2e8f0}
+#legend{padding:8px 10px;border-top:1px solid #1e293b;display:flex;gap:10px;flex-wrap:wrap}
+.leg-item{display:flex;align-items:center;gap:4px;font-size:10px;color:#94a3b8}
+.leg-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+#status-bar{background:#0f172a;border-top:1px solid #1e293b;padding:4px 14px;font-size:10px;color:#64748b;flex-shrink:0}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1e293b;border:1px solid #38bdf8;color:#38bdf8;padding:8px 18px;border-radius:20px;font-size:12px;display:none;z-index:999;animation:fadein .3s}
+@keyframes fadein{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+#sentinel-count-wrap{display:flex;align-items:center;gap:4px}
+#sentinel-count{width:38px;text-align:center}
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <h1>🏥 Hospital Network <span>Epidemic Simulation</span></h1>
+
+  <div class="ctrl-group">
+    <span class="ctrl-label">Strategy</span>
+    <select id="strategy-sel">
+      <option value="random">Random Sentinels</option>
+      <option value="degree" selected>Degree Hubs</option>
+      <option value="betweenness">Betweenness</option>
+      <option value="community">Community-based</option>
+    </select>
+  </div>
+
+  <div class="ctrl-group" id="sentinel-count-wrap">
+    <span class="ctrl-label">Sentinels</span>
+    <input type="number" id="sentinel-count" value="20" min="1" max="60"/>
+  </div>
+
+  <div class="ctrl-group">
+    <span class="ctrl-label">β</span>
+    <input type="range" id="beta-sl" min="0.01" max="0.3" step="0.01" value="0.08" style="width:70px"/>
+    <span id="beta-val" style="font-size:11px;color:#38bdf8;min-width:28px">0.08</span>
+  </div>
+
+  <div class="ctrl-group">
+    <span class="ctrl-label">γ</span>
+    <input type="range" id="gamma-sl" min="0.01" max="0.3" step="0.01" value="0.05" style="width:70px"/>
+    <span id="gamma-val" style="font-size:11px;color:#10b981;min-width:28px">0.05</span>
+  </div>
+
+  <div id="sep"></div>
+
+  <div class="ctrl-group">
+    <button class="btn primary" id="play-btn" onclick="togglePlay()">▶ Play</button>
+    <button class="btn" onclick="stepSim()">Step</button>
+    <button class="btn danger" onclick="resetSim()">Reset</button>
+  </div>
+
+  <div class="ctrl-group">
+    <span class="ctrl-label">Speed</span>
+    <select id="speed-sel">
+      <option value="600">Slow</option>
+      <option value="300" selected>Normal</option>
+      <option value="100">Fast</option>
+      <option value="30">Turbo</option>
+    </select>
+  </div>
+</div>
+
+<div id="main">
+  <div id="map-panel">
+    <div id="graph-div"></div>
+  </div>
+
+  <div id="side-panel">
+    <div id="stat-cards">
+      <div class="stat-card">
+        <div class="val" id="s-step">0</div>
+        <div class="lbl">Step</div>
+      </div>
+      <div class="stat-card detected">
+        <div class="val" id="s-detect">—</div>
+        <div class="lbl">Detection Day</div>
+      </div>
+      <div class="stat-card infected">
+        <div class="val" id="s-infected">0</div>
+        <div class="lbl">Infected</div>
+      </div>
+      <div class="stat-card recovered">
+        <div class="val" id="s-recovered">0</div>
+        <div class="lbl">Recovered</div>
+      </div>
+      <div class="stat-card" style="grid-column:span 2">
+        <div class="val" id="s-amp" style="color:#a78bfa">—</div>
+        <div class="lbl">Amplification Risk</div>
+      </div>
+    </div>
+
+    <div id="curve-div"></div>
+
+    <div id="info-box">
+      <h3 id="info-title">Click a node to start outbreak</h3>
+      <div class="row">HRR Region: <span id="info-name">—</span></div>
+      <div class="row">State: <span id="info-state">—</span></div>
+      <div class="row">Hospitals: <span id="info-hosp">—</span></div>
+      <div class="row">Total Beds: <span id="info-beds">—</span></div>
+      <div class="row">Degree Rank: <span id="info-deg"  >—</span></div>
+      <div class="row">Btw Rank: <span id="info-btw">—</span></div>
+      <div class="row">Community: <span id="info-comm">—</span></div>
+      <div class="row">Status: <span id="info-status">—</span></div>
+    </div>
+
+    <div id="legend">
+      <div class="leg-item"><div class="leg-dot" style="background:#94a3b8"></div>Susceptible</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#ef4444"></div>Infected</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#10b981"></div>Recovered</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#f59e0b"></div>Sentinel</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#e879f9"></div>Sentinel+Infected</div>
+    </div>
+  </div>
+</div>
+
+<div id="status-bar" id="status-bar">
+  Click any node on the map to seed an outbreak · Select sentinel strategy · Press Play to run SIR simulation
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// DATA
+// ═══════════════════════════════════════════════════════════
+const RAW = {"nodes":[{"id":1,"name":"AL- BIRMINGHAM","state":"AL","n_hospitals":40,"total_beds":7687,"degree_cent":0.039603960396039604,"betweenness_cent":0.07949205516578148,"eigenvector_cent":0.0012898877112759242,"btw_rank":26,"deg_rank":1,"community":0,"lon":-86.8371,"lat":33.56},{"id":2,"name":"AL- DOTHAN","state":"AL","n_hospitals":11,"total_beds":1209,"degree_cent":0.019801980198019802,"betweenness_cent":0.00987913360872511,"eigenvector_cent":1.2498036327438471e-05,"btw_rank":166,"deg_rank":93,"community":0,"lon":-85.404,"lat":31.4855},{"id":5,"name":"AL- HUNTSVILLE","state":"AL","n_hospitals":6,"total_beds":1742,"degree_cent":0.009900990099009901,"betweenness_cent":0.05737328699757393,"eigenvector_cent":0.00018129333980968675,"btw_rank":59,"deg_rank":251,"community":0,"lon":-86.2941,"lat":34.6651},{"id":6,"name":"AL- MOBILE","state":"AL","n_hospitals":14,"total_beds":2605,"degree_cent":0.019801980198019802,"betweenness_cent":0.02281817585732083,"eigenvector_cent":0.0001619996457447126,"btw_rank":122,"deg_rank":93,"community":0,"lon":-87.8461,"lat":30.8966},{"id":7,"name":"AL- MONTGOMERY","state":"AL","n_hospitals":12,"total_beds":1353,"degree_cent":0.0165016501650165,"betweenness_cent":0.00644766463401307,"eigenvector_cent":0.0001335717137263603,"btw_rank":199,"deg_rank":142,"community":0,"lon":-86.2223,"lat":32.2064},{"id":9,"name":"AL- TUSCALOOSA","state":"AL","n_hospitals":6,"total_beds":892,"degree_cent":0.009900990099009901,"betweenness_cent":0.0,"eigenvector_cent":9.612226409789225e-05,"btw_rank":281,"deg_rank":251,"community":1,"lon":-87.8269,"lat":33.0839},{"id":11,"name":"AZ- MESA","state":"AZ","n_hospitals":13,"total_beds":1975,"degree_cent":0.006600660066006601,"betweenness_cent":0.0,"eigenvector_cent":0.004455860538104479,"btw_rank":281,"deg_rank":286,"community":2,"lon":-111.3552,"lat":33.0852},{"id":12,"name":"AZ- PHOENIX","state":"AZ","n_hospitals":41,"total_beds":6890,"degree_cent":0.026402640264026403,"betweenness_cent":0.12753262081175004,"eigenvector_cent":0.037787670477356206,"btw_rank":6,"deg_rank":31,"community":2,"lon":-111.0842,"lat":34.8662},{"id":14,"name":"AZ- SUN CITY","state":"AZ","n_hospitals":3,"total_beds":721,"degree_cent":0.0033003300330033004,"betweenness_cent":0.0,"eigenvector_cent":0.0010480630449564519,"btw_rank":281,"deg_rank":299,"community":2,"lon":-112.5581,"lat":34.1963},{"id":15,"name":"AZ- TUCSON","state":"AZ","n_hospitals":15,"total_beds":2686,"degree_cent":0.009900990099009901,"betweenness_cent":0.0018140886936375755,"eigenvector_cent":0.010921245366416093,"btw_rank":229,"deg_rank":251,"community":2,"lon":-110.6393,"lat":32.8969},{"id":16,"name":"AR- FORT SMITH","state":"AR","n_hospitals":13,"total_beds":1173,"degree_cent":0.0165016501650165,"betweenness_cent":0.026927196030861363,"eigenvector_cent":0.05775449205858051,"btw_rank":111,"deg_rank":142,"community":3,"lon":-94.708,"lat":34.777},{"id":18,"name":"AR- JONESBORO","state":"AR","n_hospitals":7,"total_beds":833,"degree_cent":0.0165016501650165,"betweenness_cent":0.07210456144952243,"eigenvector_cent":0.005007282665097716,"btw_rank":36,"deg_rank":142,"community":4,"lon":-90.5512,"lat":36.2187},{"id":19,"name":"AR- LITTLE ROCK","state":"AR","n_hospitals":40,"total_beds":5493,"degree_cent":0.026402640264026403,"betweenness_cent":0.033462286626013596,"eigenvector_cent":0.016471458856827187,"btw_rank":97,"deg_rank":31,"community":1,"lon":-92.206,"lat":34.3155},{"id":21,"name":"AR- SPRINGDALE","state":"AR","n_hospitals":8,"total_beds":1235,"degree_cent":0.0165016501650165,"betweenness_cent":0.030380521495858192,"eigenvector_cent":0.025985496202991957,"btw_rank":106,"deg_rank":142,"community":3,"lon":-93.9947,"lat":36.2689},{"id":22,"name":"AR- TEXARKANA","state":"AR","n_hospitals":7,"total_beds":830,"degree_cent":0.023102310231023104,"betweenness_cent":0.07859593906410509,"eigenvector_cent":0.03142857629565322,"btw_rank":27,"deg_rank":56,"community":3,"lon":-94.3157,"lat":33.8291},{"id":23,"name":"CA- ORANGE CO.","state":"CA","n_hospitals":24,"total_beds":4832,"degree_cent":0.009900990099009901,"betweenness_cent":0.0,"eigenvector_cent":0.0013509113248858751,"btw_rank":281,"deg_rank":251,"community":2,"lon":-117.7544,"lat":33.6596},{"id":25,"name":"CA- BAKERSFIELD","state":"CA","n_hospitals":12,"total_beds":1736,"degree_cent":0.013201320132013201,"betweenness_cent":0.02238104605162503,"eigenvector_cent":0.0003829645772355649,"btw_rank":123,"deg_rank":198,"community":2,"lon":-118.6886,"lat":35.7799},{"id":31,"name":"CA- CHICO","state":"CA","n_hospitals":6,"total_beds":601,"degree_cent":0.009900990099009901,"betweenness_cent":0.01865997858063952,"eigenvector_cent":0.0008009966837520515,"btw_rank":139,"deg_rank":251,"community":2,"lon":-121.7963,"lat":39.8862},{"id":33,"name":"CA- CONTRA COSTA CO.","state":"CA","n_hospitals":6,"total_beds":1015,"degree_cent":0.0165016501650165,"betweenness_cent":0.00037702445741262866,"eigenvector_cent":7.703335196317214e-05,"btw_rank":242,"deg_rank":142,"community":2,"lon":-121.9433,"lat":38.0912},{"id":43,"name":"CA- FRESNO","state":"CA","n_hospitals":8,"total_beds":1794,"degree_cent":0.019801980198019802,"betweenness_cent":0.03129849408781937,"eigenvector_cent":0.0009669055569447586,"btw_rank":103,"deg_rank":93,"community":2,"lon":-119.6299,"lat":36.8958},{"id":56,"name":"CA- LOS ANGELES","state":"CA","n_hospitals":74,"total_beds":17863,"degree_cent":0.013201320132013201,"betweenness_cent":2.1856490284790067e-05,"eigenvector_cent":0.0008247577526590991,"btw_rank":257,"deg_rank":198,"community":2,"lon":-118.4413,"lat":34.1933},{"id":58,"name":"CA- MODESTO","state":"CA","n_hospitals":9,"total_beds":1399,"degree_cent":0.0165016501650165,"betweenness_cent":0.018512447271217185,"eigenvector_cent":0.0010273226696420803,"btw_rank":141,"deg_rank":142,"community":2,"lon":-120.4018,"lat":37.5934},{"id":62,"name":"CA- NAPA","state":"CA","n_hospitals":8,"total_beds":522,"degree_cent":0.0165016501650165,"betweenness_cent":0.010256158066137739,"eigenvector_cent":9.065184955497145e-05,"btw_rank":163,"deg_rank":142,"community":2,"lon":-123.3012,"lat":39.439},{"id":65,"name":"CA- ALAMEDA CO.","state":"CA","n_hospitals":9,"total_beds":2206,"degree_cent":0.0165016501650165,"betweenness_cent":0.002032653596485476,"eigenvector_cent":5.6158611807675275e-05,"btw_rank":227,"deg_rank":142,"community":2,"lon":-122.0237,"lat":37.6591},{"id":69,"name":"CA- PALM SPR/RANCHO MIR.","state":"CA","n_hospitals":3,"total_beds":636,"degree_cent":0.009900990099009901,"betweenness_cent":0.03820514501781304,"eigenvector_cent":0.000837005855744913,"btw_rank":84,"deg_rank":251,"community":2,"lon":-116.3864,"lat":34.0529},{"id":73,"name":"CA- REDDING","state":"CA","n_hospitals":9,"total_beds":738,"degree_cent":0.009900990099009901,"betweenness_cent":0.01621751579131423,"eigenvector_cent":7.942447285421332e-05,"btw_rank":145,"deg_rank":251,"community":2,"lon":-122.9765,"lat":40.7934},{"id":77,"name":"CA- SACRAMENTO","state":"CA","n_hospitals":18,"total_beds":3327,"degree_cent":0.0165016501650165,"betweenness_cent":6.55694708543702e-05,"eigenvector_cent":0.0015288563474519414,"btw_rank":252,"deg_rank":142,"community":2,"lon":-120.9908,"lat":38.9518},{"id":78,"name":"CA- SALINAS","state":"CA","n_hospitals":4,"total_beds":740,"degree_cent":0.013201320132013201,"betweenness_cent":0.01910257250890652,"eigenvector_cent":2.8123940212215173e-05,"btw_rank":135,"deg_rank":198,"community":2,"lon":-121.2372,"lat":36.3271},{"id":79,"name":"CA- SAN BERNARDINO","state":"CA","n_hospitals":21,"total_beds":4747,"degree_cent":0.019801980198019802,"betweenness_cent":0.028063733525670445,"eigenvector_cent":0.0033218620860933005,"btw_rank":110,"deg_rank":93,"community":2,"lon":-117.0875,"lat":34.6112},{"id":80,"name":"CA- SAN DIEGO","state":"CA","n_hospitals":20,"total_beds":5643,"degree_cent":0.0165016501650165,"betweenness_cent":0.04017222914344414,"eigenvector_cent":0.00769807758744099,"btw_rank":79,"deg_rank":142,"community":2,"lon":-116.4091,"lat":33.2706},{"id":81,"name":"CA- SAN FRANCISCO","state":"CA","n_hospitals":12,"total_beds":3082,"degree_cent":0.0165016501650165,"betweenness_cent":0.000655694708543702,"eigenvector_cent":1.0529304799265153e-05,"btw_rank":238,"deg_rank":142,"community":2,"lon":-122.4646,"lat":37.9408},{"id":82,"name":"CA- SAN JOSE","state":"CA","n_hospitals":7,"total_beds":2166,"degree_cent":0.019801980198019802,"betweenness_cent":0.0006994076891132822,"eigenvector_cent":7.905035179807667e-05,"btw_rank":235,"deg_rank":93,"community":2,"lon":-121.5195,"lat":36.9347},{"id":83,"name":"CA- SAN LUIS OBISPO","state":"CA","n_hospitals":3,"total_beds":364,"degree_cent":0.013201320132013201,"betweenness_cent":0.034161694315126875,"eigenvector_cent":3.055488262074863e-05,"btw_rank":94,"deg_rank":198,"community":2,"lon":-120.6265,"lat":35.4335},{"id":85,"name":"CA- SAN MATEO CO.","state":"CA","n_hospitals":6,"total_beds":1301,"degree_cent":0.009900990099009901,"betweenness_cent":0.0034096124844272503,"eigenvector_cent":2.995052249725306e-06,"btw_rank":222,"deg_rank":251,"community":2,"lon":-122.2839,"lat":37.474},{"id":86,"name":"CA- SANTA BARBARA","state":"CA","n_hospitals":5,"total_beds":751,"degree_cent":0.006600660066006601,"betweenness_cent":0.010075842021288221,"eigenvector_cent":2.0842201732113984e-06,"btw_rank":164,"deg_rank":286,"community":2,"lon":-120.0668,"lat":34.7428},{"id":87,"name":"CA- SANTA CRUZ","state":"CA","n_hospitals":3,"total_beds":314,"degree_cent":0.009900990099009901,"betweenness_cent":0.00963871221559242,"eigenvector_cent":2.1853892438126903e-06,"btw_rank":168,"deg_rank":251,"community":2,"lon":-121.9429,"lat":37.0324},{"id":89,"name":"CA- SANTA ROSA","state":"CA","n_hospitals":7,"total_beds":608,"degree_cent":0.006600660066006601,"betweenness_cent":0.0,"eigenvector_cent":3.821697152877082e-06,"btw_rank":281,"deg_rank":286,"community":2,"lon":-123.0722,"lat":38.5885},{"id":91,"name":"CA- STOCKTON","state":"CA","n_hospitals":6,"total_beds":839,"degree_cent":0.013201320132013201,"betweenness_cent":0.004573470592092322,"eigenvector_cent":0.00010927011906917644,"btw_rank":209,"deg_rank":198,"community":2,"lon":-120.8303,"lat":38.1034},{"id":96,"name":"CA- VENTURA","state":"CA","n_hospitals":7,"total_beds":1239,"degree_cent":0.006600660066006601,"betweenness_cent":0.003540751426135991,"eigenvector_cent":5.239892870758026e-05,"btw_rank":219,"deg_rank":286,"community":2,"lon":-119.1632,"lat":34.0711},{"id":101,"name":"CO- BOULDER","state":"CO","n_hospitals":5,"total_beds":702,"degree_cent":0.009900990099009901,"betweenness_cent":0.003606320896990361,"eigenvector_cent":0.01179254503205501,"btw_rank":217,"deg_rank":251,"community":3,"lon":-105.3973,"lat":40.1312},{"id":102,"name":"CO- COLORADO SPRINGS","state":"CO","n_hospitals":13,"total_beds":1291,"degree_cent":0.019801980198019802,"betweenness_cent":0.08836579022140624,"eigenvector_cent":0.09640038378481046,"btw_rank":19,"deg_rank":93,"community":3,"lon":-104.8705,"lat":38.2535},{"id":103,"name":"CO- DENVER","state":"CO","n_hospitals":43,"total_beds":5958,"degree_cent":0.033003300330033,"betweenness_cent":0.02607479290975455,"eigenvector_cent":0.2392642564852738,"btw_rank":114,"deg_rank":8,"community":3,"lon":-105.4342,"lat":40.3341},{"id":104,"name":"CO- FORT COLLINS","state":"CO","n_hospitals":6,"total_beds":563,"degree_cent":0.013201320132013201,"betweenness_cent":0.007496776167682993,"eigenvector_cent":0.015235512484188338,"btw_rank":184,"deg_rank":198,"community":3,"lon":-106.0916,"lat":40.9052},{"id":105,"name":"CO- GRAND JUNCTION","state":"CO","n_hospitals":9,"total_beds":623,"degree_cent":0.013201320132013201,"betweenness_cent":0.07485847922540598,"eigenvector_cent":0.03413180021472744,"btw_rank":30,"deg_rank":198,"community":2,"lon":-108.0405,"lat":38.9652},{"id":106,"name":"CO- GREELEY","state":"CO","n_hospitals":11,"total_beds":759,"degree_cent":0.009900990099009901,"betweenness_cent":0.0,"eigenvector_cent":0.021787912740318816,"btw_rank":281,"deg_rank":251,"community":3,"lon":-104.7655,"lat":40.3373},{"id":107,"name":"CO- PUEBLO","state":"CO","n_hospitals":3,"total_beds":716,"degree_cent":0.0033003300330033004,"betweenness_cent":0.0,"eigenvector_cent":0.002334124759212037,"btw_rank":281,"deg_rank":299,"community":3,"lon":-104.5553,"lat":37.6442},{"id":109,"name":"CT- BRIDGEPORT","state":"CT","n_hospitals":5,"total_beds":1401,"degree_cent":0.006600660066006601,"betweenness_cent":0.0,"eigenvector_cent":4.090228442773463e-09,"btw_rank":281,"deg_rank":286,"community":6,"lon":-73.4197,"lat":41.0966},{"id":110,"name":"CT- HARTFORD","state":"CT","n_hospitals":15,"total_beds":3069,"degree_cent":0.0165016501650165,"betweenness_cent":4.3712980569580134e-05,"eigenvector_cent":1.9721253680136424e-08,"btw_rank":255,"deg_rank":142,"community":6,"lon":-72.8353,"lat":41.6179},{"id":111,"name":"CT- NEW HAVEN","state":"CT","n_hospitals":11,"total_beds":2597,"degree_cent":0.0165016501650165,"betweenness_cent":0.007059646361987192,"eigenvector_cent":2.11017476409966e-08,"btw_rank":188,"deg_rank":142,"community":6,"lon":-72.6818,"lat":41.3721},{"id":112,"name":"DE- WILMINGTON","state":"DE","n_hospitals":5,"total_beds":2077,"degree_cent":0.0165016501650165,"betweenness_cent":0.10378554411732563,"eigenvector_cent":0.0002592695573131758,"btw_rank":12,"deg_rank":142,"community":6,"lon":-75.5983,"lat":39.5559},{"id":113,"name":"DC- WASHINGTON","state":"DC","n_hospitals":20,"total_beds":5236,"degree_cent":0.026402640264026403,"betweenness_cent":0.011277948986951674,"eigenvector_cent":0.000697128065378838,"btw_rank":159,"deg_rank":31,"community":7,"lon":-76.9167,"lat":38.7572},{"id":115,"name":"FL- BRADENTON","state":"FL","n_hospitals":3,"total_beds":770,"degree_cent":0.013201320132013201,"betweenness_cent":0.002065438331912661,"eigenvector_cent":2.3808804671641357e-09,"btw_rank":226,"deg_rank":198,"community":8,"lon":-82.5636,"lat":27.5083},{"id":116,"name":"FL- CLEARWATER","state":"FL","n_hospitals":5,"total_beds":1594,"degree_cent":0.009900990099009901,"betweenness_cent":0.0066006600660066,"eigenvector_cent":3.4815196805005976e-10,"btw_rank":193,"deg_rank":251,"community":8,"lon":-82.7961,"lat":27.9792},{"id":118,"name":"FL- FORT LAUDERDALE","state":"FL","n_hospitals":23,"total_beds":7200,"degree_cent":0.009900990099009901,"betweenness_cent":0.0066006600660066,"eigenvector_cent":1.084047974060573e-08,"btw_rank":193,"deg_rank":251,"community":8,"lon":-80.3077,"lat":26.9233},{"id":119,"name":"FL- FORT MYERS","state":"FL","n_hospitals":10,"total_beds":2938,"degree_cent":0.009900990099009901,"betweenness_cent":0.0002622778834174808,"eigenvector_cent":6.71182033467119e-09,"btw_rank":248,"deg_rank":251,"community":8,"lon":-81.9767,"lat":26.6391},{"id":120,"name":"FL- GAINESVILLE","state":"FL","n_hospitals":9,"total_beds":1538,"degree_cent":0.0165016501650165,"betweenness_cent":0.05155946058181977,"eigenvector_cent":9.248986127725759e-07,"btw_rank":65,"deg_rank":142,"community":8,"lon":-82.7751,"lat":29.4959},{"id":122,"name":"FL- HUDSON","state":"FL","n_hospitals":5,"total_beds":1238,"degree_cent":0.013201320132013201,"betweenness_cent":0.01593338141761196,"eigenvector_cent":4.202113713438013e-09,"btw_rank":146,"deg_rank":198,"community":8,"lon":-82.6294,"lat":28.4759},{"id":123,"name":"FL- JACKSONVILLE","state":"FL","n_hospitals":18,"total_beds":4450,"degree_cent":0.0165016501650165,"betweenness_cent":0.046466898345463685,"eigenvector_cent":7.78846230659928e-06,"btw_rank":71,"deg_rank":142,"community":0,"lon":-81.5939,"lat":30.9397},{"id":124,"name":"FL- LAKELAND","state":"FL","n_hospitals":3,"total_beds":970,"degree_cent":0.009900990099009901,"betweenness_cent":0.0016720215067864402,"eigenvector_cent":2.314995383219952e-09,"btw_rank":231,"deg_rank":251,"community":8,"lon":-81.8613,"lat":28.0324},{"id":127,"name":"FL- MIAMI","state":"FL","n_hospitals":28,"total_beds":9846,"degree_cent":0.0033003300330033004,"betweenness_cent":0.0,"eigenvector_cent":1.3581113105138035e-09,"btw_rank":281,"deg_rank":299,"community":8,"lon":-80.3233,"lat":25.4982},{"id":129,"name":"FL- OCALA","state":"FL","n_hospitals":4,"total_beds":1001,"degree_cent":0.009900990099009901,"betweenness_cent":0.032380390356916484,"eigenvector_cent":2.825564289410416e-08,"btw_rank":101,"deg_rank":251,"community":8,"lon":-82.6393,"lat":28.8693},{"id":130,"name":"FL- ORLANDO","state":"FL","n_hospitals":31,"total_beds":9188,"degree_cent":0.033003300330033,"betweenness_cent":0.041789609424518606,"eigenvector_cent":7.78872373113602e-08,"btw_rank":76,"deg_rank":8,"community":8,"lon":-80.9196,"lat":28.1292},{"id":131,"name":"FL- ORMOND BEACH","state":"FL","n_hospitals":4,"total_beds":1102,"degree_cent":0.009900990099009901,"betweenness_cent":0.037647804515550894,"eigenvector_cent":2.812784329750644e-07,"btw_rank":86,"deg_rank":251,"community":8,"lon":-81.1587,"lat":29.1888},{"id":133,"name":"FL- PANAMA CITY","state":"FL","n_hospitals":5,"total_beds":588,"degree_cent":0.009900990099009901,"betweenness_cent":0.006163530260310799,"eigenvector_cent":1.4748938399221784e-06,"btw_rank":202,"deg_rank":251,"community":0,"lon":-85.3667,"lat":30.0501},{"id":134,"name":"FL- PENSACOLA","state":"AL","n_hospitals":14,"total_beds":2306,"degree_cent":0.013201320132013201,"betweenness_cent":0.00655694708543702,"eigenvector_cent":2.063342431940129e-05,"btw_rank":197,"deg_rank":198,"community":0,"lon":-86.9416,"lat":30.6285},{"id":137,"name":"FL- SARASOTA","state":"FL","n_hospitals":5,"total_beds":1306,"degree_cent":0.009900990099009901,"betweenness_cent":0.0003497038445566411,"eigenvector_cent":3.5937438357504553e-09,"btw_rank":243,"deg_rank":251,"community":8,"lon":-82.3392,"lat":27.0233},{"id":139,"name":"FL- ST PETERSBURG","state":"FL","n_hospitals":5,"total_beds":1555,"degree_cent":0.0033003300330033004,"betweenness_cent":0.0,"eigenvector_cent":8.637024197089817e-12,"btw_rank":281,"deg_rank":299,"community":8,"lon":-82.7201,"lat":27.7725},{"id":140,"name":"FL- TALLAHASSEE","state":"FL","n_hospitals":17,"total_beds":2106,"degree_cent":0.019801980198019802,"betweenness_cent":0.041724039953664235,"eigenvector_cent":7.65903710150348e-06,"btw_rank":77,"deg_rank":93,"community":0,"lon":-83.9652,"lat":30.322},{"id":141,"name":"FL- TAMPA","state":"FL","n_hospitals":12,"total_beds":3824,"degree_cent":0.0165016501650165,"betweenness_cent":0.0003497038445566411,"eigenvector_cent":6.956790010623911e-09,"btw_rank":243,"deg_rank":142,"community":8,"lon":-82.4345,"lat":27.9574},{"id":142,"name":"GA- ALBANY","state":"GA","n_hospitals":4,"total_beds":808,"degree_cent":0.013201320132013201,"betweenness_cent":0.04834655650995563,"eigenvector_cent":4.748247938935999e-06,"btw_rank":69,"deg_rank":198,"community":0,"lon":-84.1996,"lat":31.7211},{"id":144,"name":"GA- ATLANTA","state":"GA","n_hospitals":55,"total_beds":10065,"degree_cent":0.033003300330033,"betweenness_cent":0.013791445369702532,"eigenvector_cent":0.00046405188583398363,"btw_rank":149,"deg_rank":8,"community":0,"lon":-83.7428,"lat":34.1258},{"id":145,"name":"GA- AUGUSTA","state":"GA","n_hospitals":13,"total_beds":1955,"degree_cent":0.0165016501650165,"betweenness_cent":0.024391843157825714,"eigenvector_cent":5.900995493120782e-05,"btw_rank":116,"deg_rank":142,"community":0,"lon":-82.2907,"lat":33.524},{"id":146,"name":"GA- COLUMBUS","state":"AL","n_hospitals":5,"total_beds":963,"degree_cent":0.019801980198019802,"betweenness_cent":0.06712128166459029,"eigenvector_cent":8.58982409293298e-05,"btw_rank":44,"deg_rank":93,"community":0,"lon":-84.8374,"lat":32.4126},{"id":147,"name":"GA- MACON","state":"GA","n_hospitals":17,"total_beds":1897,"degree_cent":0.023102310231023104,"betweenness_cent":0.02563766310405875,"eigenvector_cent":6.984705192818976e-05,"btw_rank":115,"deg_rank":56,"community":0,"lon":-83.3217,"lat":32.5539},{"id":148,"name":"GA- ROME","state":"AL","n_hospitals":6,"total_beds":572,"degree_cent":0.009900990099009901,"betweenness_cent":0.0,"eigenvector_cent":0.00010026955781418704,"btw_rank":281,"deg_rank":251,"community":0,"lon":-85.2142,"lat":34.3154},{"id":149,"name":"GA- SAVANNAH","state":"GA","n_hospitals":17,"total_beds":1880,"degree_cent":0.013201320132013201,"betweenness_cent":0.04939566804362555,"eigenvector_cent":1.1504401653133596e-05,"btw_rank":68,"deg_rank":198,"community":0,"lon":-81.2792,"lat":32.1543},{"id":151,"name":"ID- BOISE","state":"ID","n_hospitals":17,"total_beds":1618,"degree_cent":0.023102310231023104,"betweenness_cent":0.07337223788604026,"eigenvector_cent":0.014437359545561192,"btw_rank":34,"deg_rank":56,"community":2,"lon":-116.0636,"lat":43.7194},{"id":152,"name":"ID- IDAHO FALLS","state":"ID","n_hospitals":6,"total_beds":429,"degree_cent":0.013201320132013201,"betweenness_cent":0.0959281358599436,"eigenvector_cent":0.007801987145709068,"btw_rank":14,"deg_rank":198,"community":2,"lon":-112.5776,"lat":43.8207},{"id":154,"name":"IL- AURORA","state":"IL","n_hospitals":3,"total_beds":453,"degree_cent":0.0165016501650165,"betweenness_cent":0.07079317203243503,"eigenvector_cent":5.456836851147781e-05,"btw_rank":39,"deg_rank":142,"community":9,"lon":-88.4579,"lat":41.69},{"id":155,"name":"IL- BLUE ISLAND","state":"IL","n_hospitals":7,"total_beds":2624,"degree_cent":0.0165016501650165,"betweenness_cent":0.003628177387275151,"eigenvector_cent":9.153582252468055e-06,"btw_rank":216,"deg_rank":142,"community":9,"lon":-87.7062,"lat":41.6131},{"id":156,"name":"IL- CHICAGO","state":"IL","n_hospitals":26,"total_beds":8809,"degree_cent":0.0165016501650165,"betweenness_cent":0.00048084278626538146,"eigenvector_cent":5.625502653401637e-06,"btw_rank":241,"deg_rank":142,"community":9,"lon":-87.5269,"lat":41.9458},{"id":158,"name":"IL- ELGIN","state":"IL","n_hospitals":5,"total_beds":1082,"degree_cent":0.013201320132013201,"betweenness_cent":0.009955631324721876,"eigenvector_cent":4.469137959641844e-05,"btw_rank":165,"deg_rank":198,"community":10,"lon":-88.2567,"lat":42.1487},{"id":161,"name":"IL- EVANSTON","state":"IL","n_hospitals":5,"total_beds":2006,"degree_cent":0.013201320132013201,"betweenness_cent":0.007682556335103709,"eigenvector_cent":2.4129423097574752e-05,"btw_rank":182,"deg_rank":198,"community":9,"lon":-87.8693,"lat":42.0907},{"id":163,"name":"IL- HINSDALE","state":"IL","n_hospitals":4,"total_beds":883,"degree_cent":0.009900990099009901,"betweenness_cent":0.0,"eigenvector_cent":4.85538948314757e-06,"btw_rank":281,"deg_rank":251,"community":9,"lon":-88.0289,"lat":41.7603},{"id":164,"name":"IL- JOLIET","state":"IL","n_hospitals":5,"total_beds":1223,"degree_cent":0.0297029702970297,"betweenness_cent":0.11892116363954276,"eigenvector_cent":0.00011658839385359696,"btw_rank":9,"deg_rank":17,"community":9,"lon":-88.1545,"lat":41.4756},{"id":166,"name":"IL- MELROSE PARK","state":"IL","n_hospitals":12,"total_beds":3283,"degree_cent":0.026402640264026403,"betweenness_cent":0.01953970231460232,"eigenvector_cent":4.5627185593640136e-05,"btw_rank":131,"deg_rank":31,"community":9,"lon":-88.0648,"lat":41.8731},{"id":170,"name":"IL- PEORIA","state":"IL","n_hospitals":14,"total_beds":2099,"degree_cent":0.019801980198019802,"betweenness_cent":0.02327716215330142,"eigenvector_cent":0.0015025767296835712,"btw_rank":120,"deg_rank":93,"community":4,"lon":-89.62,"lat":40.7807},{"id":171,"name":"IL- ROCKFORD","state":"IL","n_hospitals":13,"total_beds":1663,"degree_cent":0.026402640264026403,"betweenness_cent":0.07429021047800144,"eigenvector_cent":0.0005947633022395111,"btw_rank":32,"deg_rank":31,"community":10,"lon":-89.3984,"lat":42.0603},{"id":172,"name":"IL- SPRINGFIELD","state":"IL","n_hospitals":23,"total_beds":2792,"degree_cent":0.026402640264026403,"betweenness_cent":0.011321661967521254,"eigenvector_cent":0.014628541802900585,"btw_rank":158,"deg_rank":31,"community":4,"lon":-90.1827,"lat":39.7061},{"id":173,"name":"IL- URBANA","state":"IL","n_hospitals":9,"total_beds":1061,"degree_cent":0.023102310231023104,"betweenness_cent":0.0948571678359889,"eigenvector_cent":0.0014183439550424642,"btw_rank":15,"deg_rank":56,"community":4,"lon":-87.9388,"lat":39.9034},{"id":175,"name":"IL- BLOOMINGTON","state":"IL","n_hospitals":3,"total_beds":422,"degree_cent":0.013201320132013201,"betweenness_cent":0.034270976766550824,"eigenvector_cent":0.00045607439065992373,"btw_rank":93,"deg_rank":198,"community":4,"lon":-88.9429,"lat":40.6349},{"id":179,"name":"IN- EVANSVILLE","state":"IL","n_hospitals":21,"total_beds":1826,"degree_cent":0.026402640264026403,"betweenness_cent":0.12390444342447489,"eigenvector_cent":0.005573450507503967,"btw_rank":7,"deg_rank":31,"community":4,"lon":-87.5884,"lat":38.1357},{"id":180,"name":"IN- FORT WAYNE","state":"IN","n_hospitals":23,"total_beds":1830,"degree_cent":0.023102310231023104,"betweenness_cent":0.014337857626822284,"eigenvector_cent":0.0002780521186058498,"btw_rank":147,"deg_rank":56,"community":9,"lon":-85.0849,"lat":41.0881},{"id":181,"name":"IN- GARY","state":"IN","n_hospitals":7,"total_beds":1411,"degree_cent":0.023102310231023104,"betweenness_cent":0.05269599807662885,"eigenvector_cent":9.720900434337628e-05,"btw_rank":62,"deg_rank":56,"community":9,"lon":-87.0423,"lat":41.5217},{"id":183,"name":"IN- INDIANAPOLIS","state":"IN","n_hospitals":50,"total_beds":6799,"degree_cent":0.036303630363036306,"betweenness_cent":0.08666098397919261,"eigenvector_cent":0.0014083888866627627,"btw_rank":22,"deg_rank":3,"community":9,"lon":-86.1492,"lat":39.3854},{"id":184,"name":"IN- LAFAYETTE","state":"IN","n_hospitals":4,"total_beds":400,"degree_cent":0.013201320132013201,"betweenness_cent":0.08035538653203068,"eigenvector_cent":9.579063100982866e-05,"btw_rank":25,"deg_rank":198,"community":9,"lon":-87.0081,"lat":40.4689},{"id":185,"name":"IN- MUNCIE","state":"IN","n_hospitals":3,"total_beds":365,"degree_cent":0.009900990099009901,"betweenness_cent":0.08701068782374925,"eigenvector_cent":5.506996038083364e-05,"btw_rank":21,"deg_rank":251,"community":9,"lon":-85.0662,"lat":40.2723},{"id":186,"name":"IN- MUNSTER","state":"IN","n_hospitals":5,"total_beds":799,"degree_cent":0.009900990099009901,"betweenness_cent":0.0017922322033527855,"eigenvector_cent":3.31086367669944e-06,"btw_rank":230,"deg_rank":251,"community":9,"lon":-87.491,"lat":41.5816},{"id":187,"name":"IN- SOUTH BEND","state":"IN","n_hospitals":9,"total_beds":1343,"degree_cent":0.0165016501650165,"betweenness_cent":0.000327847354271851,"eigenvector_cent":0.00012977972014672557,"btw_rank":245,"deg_rank":142,"community":9,"lon":-86.1492,"lat":41.5914},{"id":188,"name":"IN- TERRE HAUTE","state":"IN","n_hospitals":4,"total_beds":600,"degree_cent":0.009900990099009901,"betweenness_cent":0.12122702336458811,"eigenvector_cent":0.0002765985503014013,"btw_rank":8,"deg_rank":251,"community":4,"lon":-87.4376,"lat":39.2827},{"id":190,"name":"IA- CEDAR RAPIDS","state":"IA","n_hospitals":7,"total_beds":934,"degree_cent":0.019801980198019802,"betweenness_cent":0.08478132581470067,"eigenvector_cent":0.015338804612855365,"btw_rank":24,"deg_rank":93,"community":4,"lon":-91.6253,"lat":42.0713},{"id":191,"name":"IA- DAVENPORT","state":"IL","n_hospitals":10,"total_beds":1145,"degree_cent":0.019801980198019802,"betweenness_cent":0.023539440036718904,"eigenvector_cent":0.003149649544471831,"btw_rank":117,"deg_rank":93,"community":4,"lon":-90.8448,"lat":41.145},{"id":192,"name":"IA- DES MOINES","state":"IA","n_hospitals":37,"total_beds":2761,"degree_cent":0.0297029702970297,"betweenness_cent":0.006994076891132821,"eigenvector_cent":0.21869561858276335,"btw_rank":190,"deg_rank":17,"community":3,"lon":-93.3318,"lat":41.3316},{"id":193,"name":"IA- DUBUQUE","state":"IL","n_hospitals":6,"total_beds":721,"degree_cent":0.0165016501650165,"betweenness_cent":0.07203899197866806,"eigenvector_cent":0.0013248548080194804,"btw_rank":37,"deg_rank":142,"community":10,"lon":-90.6132,"lat":42.6072},{"id":194,"name":"IA- IOWA CITY","state":"IA","n_hospitals":11,"total_beds":1765,"degree_cent":0.0165016501650165,"betweenness_cent":0.01940856337289358,"eigenvector_cent":0.025791395889090282,"btw_rank":132,"deg_rank":142,"community":4,"lon":-91.7092,"lat":41.1394},{"id":195,"name":"IA- MASON CITY","state":"IA","n_hospitals":8,"total_beds":468,"degree_cent":0.0165016501650165,"betweenness_cent":0.07105544991585251,"eigenvector_cent":0.04419477924642243,"btw_rank":38,"deg_rank":142,"community":10,"lon":-93.543,"lat":43.0873},{"id":196,"name":"IA- SIOUX CITY","state":"IA","n_hospitals":14,"total_beds":686,"degree_cent":0.009900990099009901,"betweenness_cent":0.0019015146547767359,"eigenvector_cent":0.08663776825779924,"btw_rank":228,"deg_rank":251,"community":3,"lon":-96.3784,"lat":42.5054},{"id":197,"name":"IA- WATERLOO","state":"IA","n_hospitals":8,"total_beds":773,"degree_cent":0.0165016501650165,"betweenness_cent":0.07055275063930233,"eigenvector_cent":0.018092345907568405,"btw_rank":40,"deg_rank":142,"community":10,"lon":-92.2988,"lat":42.5366},{"id":200,"name":"KS- TOPEKA","state":"KS","n_hospitals":15,"total_beds":1262,"degree_cent":0.013201320132013201,"betweenness_cent":0.007824623521954843,"eigenvector_cent":0.1616054216409994,"btw_rank":181,"deg_rank":198,"community":3,"lon":-95.7466,"lat":39.0792},{"id":201,"name":"KS- WICHITA","state":"KS","n_hospitals":84,"total_beds":4660,"degree_cent":0.0297029702970297,"betweenness_cent":0.03129849408781937,"eigenvector_cent":0.4733986759361233,"btw_rank":103,"deg_rank":17,"community":3,"lon":-98.9641,"lat":37.8937},{"id":203,"name":"KY- COVINGTON","state":"KY","n_hospitals":4,"total_beds":982,"degree_cent":0.006600660066006601,"betweenness_cent":0.02318973619216226,"eigenvector_cent":9.247409493495291e-05,"btw_rank":121,"deg_rank":286,"community":0,"lon":-84.5296,"lat":38.7414},{"id":204,"name":"KY- LEXINGTON","state":"KY","n_hospitals":40,"total_beds":4538,"degree_cent":0.0297029702970297,"betweenness_cent":0.022337333071055447,"eigenvector_cent":0.0010387359250219961,"btw_rank":124,"deg_rank":17,"community":0,"lon":-83.6171,"lat":37.7757},{"id":205,"name":"KY- LOUISVILLE","state":"IN","n_hospitals":30,"total_beds":5431,"degree_cent":0.023102310231023104,"betweenness_cent":0.03328743470373527,"eigenvector_cent":0.001570281613292692,"btw_rank":98,"deg_rank":56,"community":0,"lon":-85.7508,"lat":37.9315},{"id":207,"name":"KY- OWENSBORO","state":"KY","n_hospitals":2,"total_beds":436,"degree_cent":0.013201320132013201,"betweenness_cent":0.16158503267545296,"eigenvector_cent":0.00022170028475705482,"btw_rank":2,"deg_rank":198,"community":0,"lon":-86.9504,"lat":37.5691},{"id":208,"name":"KY- PADUCAH","state":"IL","n_hospitals":12,"total_beds":1482,"degree_cent":0.023102310231023104,"betweenness_cent":0.06506677157782002,"eigenvector_cent":0.0031562118038932882,"btw_rank":47,"deg_rank":56,"community":4,"lon":-88.2794,"lat":37.1356},{"id":209,"name":"LA- ALEXANDRIA","state":"LA","n_hospitals":11,"total_beds":862,"degree_cent":0.019801980198019802,"betweenness_cent":0.04192074836622735,"eigenvector_cent":0.0006386334870255542,"btw_rank":75,"deg_rank":93,"community":1,"lon":-92.3801,"lat":31.3697},{"id":210,"name":"LA- BATON ROUGE","state":"LA","n_hospitals":18,"total_beds":2268,"degree_cent":0.0165016501650165,"betweenness_cent":0.011562083360653945,"eigenvector_cent":0.0001741567812815921,"btw_rank":156,"deg_rank":142,"community":1,"lon":-91.1465,"lat":30.6558},{"id":212,"name":"LA- HOUMA","state":"LA","n_hospitals":8,"total_beds":779,"degree_cent":0.009900990099009901,"betweenness_cent":0.005649902738618233,"eigenvector_cent":1.3250011417685201e-05,"btw_rank":205,"deg_rank":251,"community":1,"lon":-90.3983,"lat":29.3842},{"id":213,"name":"LA- LAFAYETTE","state":"LA","n_hospitals":19,"total_beds":1833,"degree_cent":0.013201320132013201,"betweenness_cent":0.003562607916420781,"eigenvector_cent":6.27368589765354e-05,"btw_rank":218,"deg_rank":198,"community":1,"lon":-92.1018,"lat":30.0104},{"id":214,"name":"LA- LAKE CHARLES","state":"LA","n_hospitals":7,"total_beds":758,"degree_cent":0.009900990099009901,"betweenness_cent":0.006207243240880379,"eigenvector_cent":3.703365378461058e-05,"btw_rank":201,"deg_rank":251,"community":1,"lon":-93.3431,"lat":30.5265},{"id":216,"name":"LA- METAIRIE","state":"LA","n_hospitals":8,"total_beds":830,"degree_cent":0.0165016501650165,"betweenness_cent":0.007015933381417611,"eigenvector_cent":7.840449536635378e-05,"btw_rank":189,"deg_rank":142,"community":1,"lon":-90.1044,"lat":30.532},{"id":217,"name":"LA- MONROE","state":"LA","n_hospitals":14,"total_beds":1048,"degree_cent":0.013201320132013201,"betweenness_cent":6.55694708543702e-05,"eigenvector_cent":0.002293832062017273,"btw_rank":252,"deg_rank":198,"community":1,"lon":-91.7334,"lat":32.332},{"id":218,"name":"LA- NEW ORLEANS","state":"LA","n_hospitals":9,"total_beds":2411,"degree_cent":0.009900990099009901,"betweenness_cent":0.006841081459139291,"eigenvector_cent":4.063128649977632e-06,"btw_rank":191,"deg_rank":251,"community":1,"lon":-89.8554,"lat":29.5729},{"id":219,"name":"LA- SHREVEPORT","state":"LA","n_hospitals":19,"total_beds":2093,"degree_cent":0.023102310231023104,"betweenness_cent":0.043865976001573666,"eigenvector_cent":0.005741842325134392,"btw_rank":72,"deg_rank":56,"community":1,"lon":-93.603,"lat":31.8294},{"id":220,"name":"LA- SLIDELL","state":"LA","n_hospitals":6,"total_beds":550,"degree_cent":0.013201320132013201,"betweenness_cent":0.011037527593818984,"eigenvector_cent":5.915873377835283e-06,"btw_rank":160,"deg_rank":198,"community":1,"lon":-89.6576,"lat":30.4016},{"id":221,"name":"ME- BANGOR","state":"ME","n_hospitals":18,"total_beds":1014,"degree_cent":0.0033003300330033004,"betweenness_cent":0.0,"eigenvector_cent":1.9737001806812343e-10,"btw_rank":281,"deg_rank":299,"community":6,"lon":-68.1692,"lat":44.793},{"id":222,"name":"ME- PORTLAND","state":"ME","n_hospitals":18,"total_beds":2427,"degree_cent":0.009900990099009901,"betweenness_cent":0.0066006600660066,"eigenvector_cent":2.2099537925137063e-09,"btw_rank":193,"deg_rank":251,"community":6,"lon":-69.7087,"lat":43.9635},{"id":223,"name":"MD- BALTIMORE","state":"MD","n_hospitals":24,"total_beds":6874,"degree_cent":0.026402640264026403,"betweenness_cent":0.1314012195921579,"eigenvector_cent":0.005851963132267676,"btw_rank":5,"deg_rank":31,"community":2,"lon":-76.2881,"lat":39.009},{"id":225,"name":"MD- SALISBURY","state":"DE","n_hospitals":6,"total_beds":826,"degree_cent":0.009900990099009901,"betweenness_cent":0.13539002906913208,"eigenvector_cent":0.0003161478639096479,"btw_rank":4,"deg_rank":251,"community":2,"lon":-75.7352,"lat":38.2874},{"id":226,"name":"MD- TAKOMA PARK","state":"MD","n_hospitals":6,"total_beds":1282,"degree_cent":0.006600660066006601,"betweenness_cent":0.008808165584770397,"eigenvector_cent":0.00031066500772021944,"btw_rank":176,"deg_rank":286,"community":7,"lon":-76.9842,"lat":39.1482},{"id":227,"name":"MA- BOSTON","state":"MA","n_hospitals":41,"total_beds":8535,"degree_cent":0.009900990099009901,"betweenness_cent":0.0,"eigenvector_cent":6.619221436457664e-10,"btw_rank":281,"deg_rank":251,"community":6,"lon":-70.6333,"lat":41.9766},{"id":230,"name":"MA- SPRINGFIELD","state":"MA","n_hospitals":8,"total_beds":1381,"degree_cent":0.013201320132013201,"betweenness_cent":0.01878565339977706,"eigenvector_cent":1.3684530808686253e-08,"btw_rank":137,"deg_rank":198,"community":6,"lon":-72.8266,"lat":42.2936},{"id":231,"name":"MA- WORCESTER","state":"MA","n_hospitals":8,"total_beds":1063,"degree_cent":0.019801980198019802,"betweenness_cent":0.013059252945162065,"eigenvector_cent":3.10611491959946e-09,"btw_rank":150,"deg_rank":93,"community":6,"lon":-72.091,"lat":42.3471},{"id":232,"name":"MI- ANN ARBOR","state":"MI","n_hospitals":12,"total_beds":2614,"degree_cent":0.0297029702970297,"betweenness_cent":0.038008436605249926,"eigenvector_cent":3.273975219929584e-05,"btw_rank":85,"deg_rank":17,"community":9,"lon":-83.8615,"lat":42.3076},{"id":233,"name":"MI- DEARBORN","state":"MI","n_hospitals":5,"total_beds":1376,"degree_cent":0.009900990099009901,"betweenness_cent":0.0023605009507573272,"eigenvector_cent":5.97019220230248e-06,"btw_rank":224,"deg_rank":251,"community":9,"lon":-83.2571,"lat":42.2404},{"id":234,"name":"MI- DETROIT","state":"MI","n_hospitals":14,"total_beds":4800,"degree_cent":0.0165016501650165,"betweenness_cent":0.0,"eigenvector_cent":2.6283376618653666e-06,"btw_rank":281,"deg_rank":142,"community":9,"lon":-82.7801,"lat":42.6899},{"id":235,"name":"MI- FLINT","state":"MI","n_hospitals":4,"total_beds":1059,"degree_cent":0.019801980198019802,"betweenness_cent":0.01969269774659585,"eigenvector_cent":1.3018911391232633e-06,"btw_rank":130,"deg_rank":93,"community":9,"lon":-83.5592,"lat":42.9547},{"id":236,"name":"MI- GRAND RAPIDS","state":"MI","n_hospitals":13,"total_beds":1570,"degree_cent":0.0165016501650165,"betweenness_cent":0.021528642930518215,"eigenvector_cent":2.1029416951713907e-06,"btw_rank":127,"deg_rank":142,"community":9,"lon":-85.5505,"lat":43.2456},{"id":238,"name":"MI- KALAMAZOO","state":"MI","n_hospitals":11,"total_beds":1247,"degree_cent":0.019801980198019802,"betweenness_cent":0.012480055952615128,"eigenvector_cent":2.921367293069118e-05,"btw_rank":152,"deg_rank":93,"community":9,"lon":-85.4297,"lat":42.1739},{"id":239,"name":"MI- LANSING","state":"MI","n_hospitals":10,"total_beds":1414,"degree_cent":0.019801980198019802,"betweenness_cent":0.004371298056958014,"eigenvector_cent":3.6359606632771595e-06,"btw_rank":210,"deg_rank":93,"community":9,"lon":-84.6315,"lat":43.053},{"id":240,"name":"MI- MARQUETTE","state":"MI","n_hospitals":11,"total_beds":495,"degree_cent":0.013201320132013201,"betweenness_cent":0.026490066225165563,"eigenvector_cent":0.001054969131313198,"btw_rank":113,"deg_rank":198,"community":10,"lon":-87.0543,"lat":46.3495},{"id":242,"name":"MI- MUSKEGON","state":"MI","n_hospitals":4,"total_beds":281,"degree_cent":0.006600660066006601,"betweenness_cent":0.0,"eigenvector_cent":8.461898629147738e-08,"btw_rank":281,"deg_rank":286,"community":9,"lon":-86.2226,"lat":43.5819},{"id":243,"name":"MI- PETOSKEY","state":"MI","n_hospitals":5,"total_beds":355,"degree_cent":0.009900990099009901,"betweenness_cent":0.02915655803990995,"eigenvector_cent":3.6133136752654435e-05,"btw_rank":108,"deg_rank":251,"community":9,"lon":-84.6046,"lat":45.7942},{"id":244,"name":"MI- PONTIAC","state":"MI","n_hospitals":4,"total_beds":1040,"degree_cent":0.009900990099009901,"betweenness_cent":0.0,"eigenvector_cent":1.0413287968126582e-06,"btw_rank":281,"deg_rank":251,"community":9,"lon":-83.4179,"lat":42.6668},{"id":245,"name":"MI- ROYAL OAK","state":"MI","n_hospitals":7,"total_beds":2066,"degree_cent":0.013201320132013201,"betweenness_cent":0.0,"eigenvector_cent":1.6168444774705594e-06,"btw_rank":281,"deg_rank":198,"community":9,"lon":-83.2008,"lat":42.6126},{"id":246,"name":"MI- SAGINAW","state":"MI","n_hospitals":18,"total_beds":2021,"degree_cent":0.019801980198019802,"betweenness_cent":0.01667650208729482,"eigenvector_cent":2.5111438502831305e-06,"btw_rank":144,"deg_rank":93,"community":9,"lon":-83.5421,"lat":44.2664},{"id":248,"name":"MI- ST JOSEPH","state":"MI","n_hospitals":3,"total_beds":403,"degree_cent":0.013201320132013201,"betweenness_cent":0.04135247961882281,"eigenvector_cent":5.656993596123438e-06,"btw_rank":78,"deg_rank":198,"community":9,"lon":-86.3219,"lat":42.1256},{"id":249,"name":"MI- TRAVERSE CITY","state":"MI","n_hospitals":4,"total_beds":474,"degree_cent":0.0165016501650165,"betweenness_cent":0.01859987323235635,"eigenvector_cent":1.0461570594066768e-06,"btw_rank":140,"deg_rank":142,"community":9,"lon":-85.6531,"lat":44.8199},{"id":250,"name":"MN- DULUTH","state":"MI","n_hospitals":15,"total_beds":945,"degree_cent":0.013201320132013201,"betweenness_cent":0.0,"eigenvector_cent":0.015776834197546847,"btw_rank":281,"deg_rank":198,"community":10,"lon":-91.1357,"lat":47.0917},{"id":251,"name":"MN- MINNEAPOLIS","state":"MN","n_hospitals":69,"total_beds":8183,"degree_cent":0.033003300330033,"betweenness_cent":0.030773938320984413,"eigenvector_cent":0.12025445264418004,"btw_rank":105,"deg_rank":8,"community":10,"lon":-93.3778,"lat":46.2218},{"id":253,"name":"MN- ROCHESTER","state":"IA","n_hospitals":12,"total_beds":2382,"degree_cent":0.0165016501650165,"betweenness_cent":0.00646952112429786,"eigenvector_cent":0.016967759032433374,"btw_rank":198,"deg_rank":142,"community":10,"lon":-92.1961,"lat":44.1002},{"id":254,"name":"MN- ST CLOUD","state":"MN","n_hospitals":8,"total_beds":600,"degree_cent":0.0033003300330033004,"betweenness_cent":0.0,"eigenvector_cent":0.00855609893557716,"btw_rank":281,"deg_rank":299,"community":10,"lon":-94.7412,"lat":45.8622},{"id":256,"name":"MN- ST PAUL","state":"MN","n_hospitals":14,"total_beds":1890,"degree_cent":0.006600660066006601,"betweenness_cent":0.0,"eigenvector_cent":0.014977944327983226,"btw_rank":281,"deg_rank":286,"community":10,"lon":-92.7553,"lat":45.0663},{"id":257,"name":"MS- GULFPORT","state":"MS","n_hospitals":3,"total_beds":672,"degree_cent":0.009900990099009901,"betweenness_cent":0.019233711450615257,"eigenvector_cent":5.984204568028784e-06,"btw_rank":134,"deg_rank":251,"community":1,"lon":-89.0881,"lat":30.4052},{"id":258,"name":"MS- HATTIESBURG","state":"MS","n_hospitals":8,"total_beds":1113,"degree_cent":0.019801980198019802,"betweenness_cent":0.008884663300767162,"eigenvector_cent":8.764946880294288e-05,"btw_rank":174,"deg_rank":93,"community":1,"lon":-89.4483,"lat":31.1774},{"id":259,"name":"MS- JACKSON","state":"LA","n_hospitals":38,"total_beds":4017,"degree_cent":0.0297029702970297,"betweenness_cent":0.021550499420803008,"eigenvector_cent":0.0009906410118782326,"btw_rank":126,"deg_rank":17,"community":1,"lon":-90.9815,"lat":32.1653},{"id":260,"name":"MS- MERIDIAN","state":"AL","n_hospitals":11,"total_beds":821,"degree_cent":0.019801980198019802,"betweenness_cent":0.007638843354534129,"eigenvector_cent":0.0002403966475950949,"btw_rank":183,"deg_rank":93,"community":1,"lon":-88.1658,"lat":32.4271},{"id":261,"name":"MS- OXFORD","state":"MS","n_hospitals":7,"total_beds":577,"degree_cent":0.009900990099009901,"betweenness_cent":0.010622254278407973,"eigenvector_cent":0.00029426019369704844,"btw_rank":161,"deg_rank":251,"community":1,"lon":-89.628,"lat":34.2817},{"id":262,"name":"MS- TUPELO","state":"AL","n_hospitals":11,"total_beds":1504,"degree_cent":0.019801980198019802,"betweenness_cent":0.008884663300767162,"eigenvector_cent":0.0005224311884127666,"btw_rank":174,"deg_rank":93,"community":1,"lon":-88.6191,"lat":34.0729},{"id":263,"name":"MO- CAPE GIRARDEAU","state":"IL","n_hospitals":8,"total_beds":820,"degree_cent":0.013201320132013201,"betweenness_cent":0.04301357288046685,"eigenvector_cent":0.0020501091072983395,"btw_rank":74,"deg_rank":198,"community":4,"lon":-89.618,"lat":37.0202},{"id":264,"name":"MO- COLUMBIA","state":"MO","n_hospitals":19,"total_beds":1773,"degree_cent":0.019801980198019802,"betweenness_cent":0.02865385876335978,"eigenvector_cent":0.07947579409243466,"btw_rank":109,"deg_rank":93,"community":4,"lon":-92.4414,"lat":39.2983},{"id":267,"name":"MO- JOPLIN","state":"KS","n_hospitals":13,"total_beds":1135,"degree_cent":0.0165016501650165,"betweenness_cent":0.03348414311629838,"eigenvector_cent":0.10959625529564498,"btw_rank":95,"deg_rank":142,"community":3,"lon":-94.7415,"lat":36.8467},{"id":268,"name":"MO- KANSAS CITY","state":"KS","n_hospitals":48,"total_beds":6434,"degree_cent":0.023102310231023104,"betweenness_cent":0.008502174720783335,"eigenvector_cent":0.3089672172783798,"btw_rank":179,"deg_rank":56,"community":3,"lon":-94.3521,"lat":39.3853},{"id":270,"name":"MO- SPRINGFIELD","state":"AR","n_hospitals":14,"total_beds":2029,"degree_cent":0.023102310231023104,"betweenness_cent":0.062487705724214804,"eigenvector_cent":0.052531275783006634,"btw_rank":53,"deg_rank":56,"community":4,"lon":-92.9558,"lat":37.017},{"id":273,"name":"MO- ST LOUIS","state":"IL","n_hospitals":58,"total_beds":10996,"degree_cent":0.023102310231023104,"betweenness_cent":6.55694708543702e-05,"eigenvector_cent":0.021174279981335687,"btw_rank":252,"deg_rank":56,"community":4,"lon":-90.4696,"lat":37.8519},{"id":274,"name":"MT- BILLINGS","state":"MT","n_hospitals":37,"total_beds":1565,"degree_cent":0.026402640264026403,"betweenness_cent":0.0670994251743055,"eigenvector_cent":0.03820008591114499,"btw_rank":45,"deg_rank":31,"community":2,"lon":-108.9427,"lat":46.4078},{"id":275,"name":"MT- GREAT FALLS","state":"MT","n_hospitals":11,"total_beds":572,"degree_cent":0.006600660066006601,"betweenness_cent":0.0,"eigenvector_cent":0.0036769717658064758,"btw_rank":281,"deg_rank":286,"community":2,"lon":-110.6141,"lat":47.7726},{"id":276,"name":"MT- MISSOULA","state":"ID","n_hospitals":18,"total_beds":815,"degree_cent":0.0165016501650165,"betweenness_cent":0.004021594212401372,"eigenvector_cent":0.006823284634493641,"btw_rank":213,"deg_rank":142,"community":2,"lon":-113.8099,"lat":46.38},{"id":277,"name":"NE- LINCOLN","state":"KS","n_hospitals":35,"total_beds":1594,"degree_cent":0.019801980198019802,"betweenness_cent":0.0046991454112298645,"eigenvector_cent":0.31006459452798063,"btw_rank":207,"deg_rank":93,"community":3,"lon":-98.8613,"lat":40.9018},{"id":278,"name":"NE- OMAHA","state":"IA","n_hospitals":53,"total_beds":3936,"degree_cent":0.019801980198019802,"betweenness_cent":4.3712980569580134e-05,"eigenvector_cent":0.2972030858714848,"btw_rank":255,"deg_rank":93,"community":3,"lon":-96.5597,"lat":41.3574},{"id":279,"name":"NV- LAS VEGAS","state":"AZ","n_hospitals":21,"total_beds":3920,"degree_cent":0.019801980198019802,"betweenness_cent":0.06246584923393001,"eigenvector_cent":0.0211564898715934,"btw_rank":54,"deg_rank":93,"community":2,"lon":-115.6924,"lat":35.7534},{"id":280,"name":"NV- RENO","state":"CA","n_hospitals":19,"total_beds":1356,"degree_cent":0.0297029702970297,"betweenness_cent":0.11117850195615588,"eigenvector_cent":0.01613007009390012,"btw_rank":10,"deg_rank":17,"community":2,"lon":-119.7706,"lat":39.4574},{"id":281,"name":"NH- LEBANON","state":"NH","n_hospitals":17,"total_beds":891,"degree_cent":0.019801980198019802,"betweenness_cent":0.01304832470001967,"eigenvector_cent":2.3452827574709313e-08,"btw_rank":151,"deg_rank":93,"community":6,"lon":-71.9775,"lat":44.1988},{"id":282,"name":"NH- MANCHESTER","state":"NH","n_hospitals":13,"total_beds":1736,"degree_cent":0.013201320132013201,"betweenness_cent":0.0002622778834174808,"eigenvector_cent":2.097025029902768e-09,"btw_rank":248,"deg_rank":198,"community":6,"lon":-71.2529,"lat":43.2982},{"id":283,"name":"NJ- CAMDEN","state":"NJ","n_hospitals":21,"total_beds":7108,"degree_cent":0.009900990099009901,"betweenness_cent":0.007289139509977487,"eigenvector_cent":1.4976004649066487e-05,"btw_rank":186,"deg_rank":251,"community":6,"lon":-74.3767,"lat":39.6995},{"id":284,"name":"NJ- HACKENSACK","state":"NJ","n_hospitals":10,"total_beds":3002,"degree_cent":0.013201320132013201,"betweenness_cent":0.0,"eigenvector_cent":1.6549804785323983e-08,"btw_rank":281,"deg_rank":198,"community":6,"lon":-74.0204,"lat":40.849},{"id":285,"name":"NJ- MORRISTOWN","state":"NJ","n_hospitals":6,"total_beds":1561,"degree_cent":0.0297029702970297,"betweenness_cent":0.09074814766244836,"eigenvector_cent":2.091820602928115e-06,"btw_rank":17,"deg_rank":17,"community":6,"lon":-74.6825,"lat":41.1029},{"id":288,"name":"NJ- NEW BRUNSWICK","state":"NJ","n_hospitals":6,"total_beds":2534,"degree_cent":0.013201320132013201,"betweenness_cent":0.004644504185517889,"eigenvector_cent":2.43860924569022e-06,"btw_rank":208,"deg_rank":198,"community":6,"lon":-74.4366,"lat":40.4844},{"id":289,"name":"NJ- NEWARK","state":"NJ","n_hospitals":12,"total_beds":4083,"degree_cent":0.013201320132013201,"betweenness_cent":0.0,"eigenvector_cent":1.8131896393972054e-07,"btw_rank":281,"deg_rank":198,"community":6,"lon":-74.1388,"lat":40.7009},{"id":291,"name":"NJ- PATERSON","state":"NJ","n_hospitals":2,"total_beds":758,"degree_cent":0.013201320132013201,"betweenness_cent":0.009584070989880445,"eigenvector_cent":3.502712383907459e-08,"btw_rank":170,"deg_rank":198,"community":6,"lon":-74.3045,"lat":40.9856},{"id":292,"name":"NJ- RIDGEWOOD","state":"NJ","n_hospitals":3,"total_beds":711,"degree_cent":0.013201320132013201,"betweenness_cent":0.0005245557668349616,"eigenvector_cent":4.4618941785699975e-08,"btw_rank":240,"deg_rank":198,"community":6,"lon":-74.2242,"lat":41.2431},{"id":293,"name":"NM- ALBUQUERQUE","state":"AZ","n_hospitals":34,"total_beds":3161,"degree_cent":0.026402640264026403,"betweenness_cent":0.018752868664349876,"eigenvector_cent":0.06288413263584652,"btw_rank":138,"deg_rank":31,"community":2,"lon":-107.0787,"lat":35.7571},{"id":295,"name":"NY- ALBANY","state":"MA","n_hospitals":24,"total_beds":4483,"degree_cent":0.036303630363036306,"betweenness_cent":0.050947478853845644,"eigenvector_cent":1.8936301854006594e-07,"btw_rank":66,"deg_rank":3,"community":6,"lon":-74.2038,"lat":42.5116},{"id":296,"name":"NY- BINGHAMTON","state":"NY","n_hospitals":7,"total_beds":842,"degree_cent":0.0165016501650165,"betweenness_cent":0.00030599086398706095,"eigenvector_cent":2.795691556037839e-07,"btw_rank":246,"deg_rank":142,"community":6,"lon":-75.358,"lat":42.213},{"id":297,"name":"NY- BRONX","state":"NY","n_hospitals":7,"total_beds":3483,"degree_cent":0.006600660066006601,"betweenness_cent":0.0,"eigenvector_cent":4.628306826122021e-09,"btw_rank":281,"deg_rank":286,"community":6,"lon":-73.8173,"lat":40.8716},{"id":299,"name":"NY- BUFFALO","state":"NY","n_hospitals":16,"total_beds":3350,"degree_cent":0.006600660066006601,"betweenness_cent":0.0,"eigenvector_cent":3.074099848723445e-06,"btw_rank":281,"deg_rank":286,"community":6,"lon":-78.6675,"lat":42.5632},{"id":300,"name":"NY- ELMIRA","state":"NY","n_hospitals":6,"total_beds":891,"degree_cent":0.0165016501650165,"betweenness_cent":0.017616331169540794,"eigenvector_cent":2.444229547132284e-07,"btw_rank":142,"deg_rank":142,"community":6,"lon":-75.76,"lat":42.8603},{"id":301,"name":"NY- EAST LONG ISLAND","state":"NY","n_hospitals":26,"total_beds":9057,"degree_cent":0.0033003300330033004,"betweenness_cent":0.0,"eigenvector_cent":1.0266297530820151e-09,"btw_rank":281,"deg_rank":299,"community":6,"lon":-73.1194,"lat":40.7956},{"id":303,"name":"NY- MANHATTAN","state":"NY","n_hospitals":26,"total_beds":13095,"degree_cent":0.009900990099009901,"betweenness_cent":0.0066006600660066,"eigenvector_cent":7.958203148007562e-09,"btw_rank":193,"deg_rank":251,"community":6,"lon":-74.0004,"lat":40.6775},{"id":304,"name":"NY- ROCHESTER","state":"NY","n_hospitals":15,"total_beds":2650,"degree_cent":0.019801980198019802,"betweenness_cent":0.0006994076891132822,"eigenvector_cent":3.146728394221023e-06,"btw_rank":235,"deg_rank":93,"community":6,"lon":-77.2954,"lat":42.6763},{"id":307,"name":"NY- SYRACUSE","state":"NY","n_hospitals":16,"total_beds":2232,"degree_cent":0.0165016501650165,"betweenness_cent":0.0,"eigenvector_cent":2.8723704001073326e-07,"btw_rank":281,"deg_rank":142,"community":6,"lon":-75.9918,"lat":43.7811},{"id":308,"name":"NY- WHITE PLAINS","state":"NY","n_hospitals":11,"total_beds":3251,"degree_cent":0.026402640264026403,"betweenness_cent":0.03311258278145695,"eigenvector_cent":9.8719447267892e-08,"btw_rank":99,"deg_rank":31,"community":6,"lon":-74.012,"lat":41.3177},{"id":309,"name":"NC- ASHEVILLE","state":"NC","n_hospitals":13,"total_beds":1405,"degree_cent":0.023102310231023104,"betweenness_cent":0.0061198172797412185,"eigenvector_cent":0.00010665120630293023,"btw_rank":203,"deg_rank":56,"community":0,"lon":-82.857,"lat":35.5673},{"id":311,"name":"NC- CHARLOTTE","state":"NC","n_hospitals":20,"total_beds":4692,"degree_cent":0.026402640264026403,"betweenness_cent":0.008611457172207286,"eigenvector_cent":1.7061798245424003e-05,"btw_rank":178,"deg_rank":31,"community":0,"lon":-80.9301,"lat":35.2604},{"id":312,"name":"NC- DURHAM","state":"NC","n_hospitals":15,"total_beds":3676,"degree_cent":0.0297029702970297,"betweenness_cent":0.048106135116822935,"eigenvector_cent":1.4993713016022224e-05,"btw_rank":70,"deg_rank":17,"community":0,"lon":-78.9567,"lat":36.2214},{"id":313,"name":"NC- GREENSBORO","state":"NC","n_hospitals":5,"total_beds":1317,"degree_cent":0.009900990099009901,"betweenness_cent":0.010359976394990492,"eigenvector_cent":1.9044475866395494e-06,"btw_rank":162,"deg_rank":251,"community":0,"lon":-79.7678,"lat":35.808},{"id":314,"name":"NC- GREENVILLE","state":"NC","n_hospitals":13,"total_beds":1993,"degree_cent":0.009900990099009901,"betweenness_cent":0.0,"eigenvector_cent":5.107298460149537e-05,"btw_rank":281,"deg_rank":251,"community":0,"lon":-76.7412,"lat":35.4166},{"id":315,"name":"NC- HICKORY","state":"NC","n_hospitals":3,"total_beds":557,"degree_cent":0.013201320132013201,"betweenness_cent":0.009092299958472667,"eigenvector_cent":4.274062368112562e-06,"btw_rank":172,"deg_rank":198,"community":0,"lon":-81.3735,"lat":35.8296},{"id":318,"name":"NC- RALEIGH","state":"NC","n_hospitals":12,"total_beds":3312,"degree_cent":0.0165016501650165,"betweenness_cent":0.06279369658820186,"eigenvector_cent":5.45898343133426e-05,"btw_rank":52,"deg_rank":142,"community":0,"lon":-78.1659,"lat":35.6202},{"id":319,"name":"NC- WILMINGTON","state":"NC","n_hospitals":7,"total_beds":980,"degree_cent":0.0165016501650165,"betweenness_cent":0.0884750726728302,"eigenvector_cent":6.033953843344859e-06,"btw_rank":18,"deg_rank":142,"community":0,"lon":-78.0475,"lat":34.3607},{"id":320,"name":"NC- WINSTON-SALEM","state":"NC","n_hospitals":16,"total_beds":3225,"degree_cent":0.023102310231023104,"betweenness_cent":0.009004873997333507,"eigenvector_cent":1.7701687247875483e-05,"btw_rank":173,"deg_rank":56,"community":0,"lon":-80.6624,"lat":36.281},{"id":321,"name":"ND- BISMARCK","state":"ND","n_hospitals":17,"total_beds":759,"degree_cent":0.0165016501650165,"betweenness_cent":0.0013769588879417743,"eigenvector_cent":0.056057410283474746,"btw_rank":232,"deg_rank":142,"community":10,"lon":-102.1853,"lat":47.3339},{"id":322,"name":"ND- FARGO MOORHEAD -MN","state":"MN","n_hospitals":25,"total_beds":1534,"degree_cent":0.0165016501650165,"betweenness_cent":0.0,"eigenvector_cent":0.08037589818533693,"btw_rank":281,"deg_rank":142,"community":10,"lon":-95.6788,"lat":47.3854},{"id":323,"name":"ND- GRAND FORKS","state":"MN","n_hospitals":15,"total_beds":521,"degree_cent":0.009900990099009901,"betweenness_cent":0.01903700303805215,"eigenvector_cent":0.022986033649053737,"btw_rank":136,"deg_rank":251,"community":10,"lon":-95.3783,"lat":48.7895},{"id":324,"name":"ND- MINOT","state":"MT","n_hospitals":10,"total_beds":558,"degree_cent":0.013201320132013201,"betweenness_cent":0.021004087163683256,"eigenvector_cent":0.013552409982034042,"btw_rank":129,"deg_rank":198,"community":10,"lon":-103.0497,"lat":48.0231},{"id":325,"name":"OH- AKRON","state":"OH","n_hospitals":5,"total_beds":2008,"degree_cent":0.009900990099009901,"betweenness_cent":0.0,"eigenvector_cent":6.616950479391564e-06,"btw_rank":281,"deg_rank":251,"community":7,"lon":-81.3685,"lat":41.097},{"id":326,"name":"OH- CANTON","state":"OH","n_hospitals":9,"total_beds":1967,"degree_cent":0.0165016501650165,"betweenness_cent":0.05269599807662885,"eigenvector_cent":5.4142797420115736e-05,"btw_rank":62,"deg_rank":142,"community":7,"lon":-81.506,"lat":40.6239},{"id":327,"name":"OH- CINCINNATI","state":"IN","n_hospitals":18,"total_beds":4535,"degree_cent":0.019801980198019802,"betweenness_cent":0.005944965357462899,"eigenvector_cent":0.0005764295287075445,"btw_rank":204,"deg_rank":93,"community":0,"lon":-84.1189,"lat":39.1451},{"id":328,"name":"OH- CLEVELAND","state":"OH","n_hospitals":27,"total_beds":6876,"degree_cent":0.023102310231023104,"betweenness_cent":0.03348414311629838,"eigenvector_cent":9.888111894805989e-05,"btw_rank":95,"deg_rank":56,"community":7,"lon":-81.9533,"lat":41.5093},{"id":329,"name":"OH- COLUMBUS","state":"OH","n_hospitals":46,"total_beds":7747,"degree_cent":0.033003300330033,"betweenness_cent":0.07448691889056455,"eigenvector_cent":0.000456385480672672,"btw_rank":31,"deg_rank":8,"community":7,"lon":-82.5244,"lat":39.3922},{"id":330,"name":"OH- DAYTON","state":"OH","n_hospitals":17,"total_beds":3350,"degree_cent":0.023102310231023104,"betweenness_cent":0.06985334295018905,"eigenvector_cent":0.00032376489767432863,"btw_rank":42,"deg_rank":56,"community":9,"lon":-84.0779,"lat":40.104},{"id":331,"name":"OH- ELYRIA","state":"OH","n_hospitals":2,"total_beds":649,"degree_cent":0.0033003300330033004,"betweenness_cent":0.0,"eigenvector_cent":1.825079524050672e-06,"btw_rank":281,"deg_rank":299,"community":7,"lon":-82.2063,"lat":41.3527},{"id":332,"name":"OH- KETTERING","state":"OH","n_hospitals":4,"total_beds":1065,"degree_cent":0.009900990099009901,"betweenness_cent":0.0704216116975936,"eigenvector_cent":4.5808896931770506e-05,"btw_rank":41,"deg_rank":251,"community":7,"lon":-84.1271,"lat":39.6283},{"id":334,"name":"OH- TOLEDO","state":"MI","n_hospitals":17,"total_beds":3221,"degree_cent":0.019801980198019802,"betweenness_cent":0.03455511114025309,"eigenvector_cent":0.00012325430658844094,"btw_rank":92,"deg_rank":93,"community":7,"lon":-83.3325,"lat":41.6068},{"id":335,"name":"OH- YOUNGSTOWN","state":"OH","n_hospitals":9,"total_beds":1863,"degree_cent":0.0165016501650165,"betweenness_cent":0.03582278757677092,"eigenvector_cent":2.347217765244791e-05,"btw_rank":90,"deg_rank":142,"community":7,"lon":-80.6219,"lat":41.1828},{"id":336,"name":"OK- LAWTON","state":"OK","n_hospitals":7,"total_beds":523,"degree_cent":0.009900990099009901,"betweenness_cent":6.55694708543702e-05,"eigenvector_cent":0.029541646006683128,"btw_rank":252,"deg_rank":251,"community":3,"lon":-98.4446,"lat":34.5179},{"id":339,"name":"OK- OKLAHOMA CITY","state":"OK","n_hospitals":66,"total_beds":5549,"degree_cent":0.026402640264026403,"betweenness_cent":0.023386444604725373,"eigenvector_cent":0.30537987462315425,"btw_rank":119,"deg_rank":31,"community":3,"lon":-97.7297,"lat":35.1976},{"id":340,"name":"OK- TULSA","state":"KS","n_hospitals":38,"total_beds":4522,"degree_cent":0.0165016501650165,"betweenness_cent":0.0,"eigenvector_cent":0.21377999537962666,"btw_rank":281,"deg_rank":142,"community":3,"lon":-95.8676,"lat":35.5029},{"id":341,"name":"OR- BEND","state":"OR","n_hospitals":6,"total_beds":348,"degree_cent":0.019801980198019802,"betweenness_cent":0.06377723865101742,"eigenvector_cent":0.001530066229771113,"btw_rank":50,"deg_rank":93,"community":2,"lon":-120.5943,"lat":44.1812},{"id":342,"name":"OR- EUGENE","state":"OR","n_hospitals":13,"total_beds":1176,"degree_cent":0.013201320132013201,"betweenness_cent":0.0,"eigenvector_cent":0.0003244692663433763,"btw_rank":281,"deg_rank":198,"community":2,"lon":-123.1147,"lat":43.9679},{"id":343,"name":"OR- MEDFORD","state":"CA","n_hospitals":9,"total_beds":966,"degree_cent":0.013201320132013201,"betweenness_cent":0.00987913360872511,"eigenvector_cent":0.0010525222120267642,"btw_rank":166,"deg_rank":198,"community":2,"lon":-122.6615,"lat":41.9651},{"id":344,"name":"OR- PORTLAND","state":"OR","n_hospitals":31,"total_beds":4594,"degree_cent":0.023102310231023104,"betweenness_cent":0.03289401787860905,"eigenvector_cent":0.002246224153053814,"btw_rank":100,"deg_rank":56,"community":2,"lon":-121.5077,"lat":45.4509},{"id":345,"name":"OR- SALEM","state":"OR","n_hospitals":3,"total_beds":346,"degree_cent":0.009900990099009901,"betweenness_cent":0.03923240006119817,"eigenvector_cent":9.918582150944189e-05,"btw_rank":81,"deg_rank":251,"community":2,"lon":-122.8988,"lat":44.88},{"id":346,"name":"PA- ALLENTOWN","state":"NJ","n_hospitals":16,"total_beds":2242,"degree_cent":0.019801980198019802,"betweenness_cent":0.0002622778834174808,"eigenvector_cent":7.162342844034943e-06,"btw_rank":248,"deg_rank":93,"community":6,"lon":-75.4516,"lat":40.8016},{"id":347,"name":"PA- ALTOONA","state":"PA","n_hospitals":6,"total_beds":568,"degree_cent":0.019801980198019802,"betweenness_cent":0.08750245885515703,"eigenvector_cent":6.225922265875623e-05,"btw_rank":20,"deg_rank":93,"community":7,"lon":-78.3299,"lat":40.4615},{"id":350,"name":"PA- DANVILLE","state":"PA","n_hospitals":11,"total_beds":953,"degree_cent":0.023102310231023104,"betweenness_cent":0.062127073634515764,"eigenvector_cent":3.147012292345341e-05,"btw_rank":55,"deg_rank":56,"community":6,"lon":-77.1348,"lat":41.0719},{"id":351,"name":"PA- ERIE","state":"NY","n_hospitals":16,"total_beds":1083,"degree_cent":0.026402640264026403,"betweenness_cent":0.07402793259458396,"eigenvector_cent":3.567885326019772e-05,"btw_rank":33,"deg_rank":31,"community":7,"lon":-79.5045,"lat":41.7568},{"id":352,"name":"PA- HARRISBURG","state":"PA","n_hospitals":10,"total_beds":1632,"degree_cent":0.023102310231023104,"betweenness_cent":0.037462024348130174,"eigenvector_cent":0.00048104233206962824,"btw_rank":87,"deg_rank":56,"community":6,"lon":-77.0755,"lat":40.2435},{"id":354,"name":"PA- JOHNSTOWN","state":"PA","n_hospitals":5,"total_beds":555,"degree_cent":0.013201320132013201,"betweenness_cent":0.055985399864489756,"eigenvector_cent":3.942502041105979e-05,"btw_rank":60,"deg_rank":198,"community":7,"lon":-78.9503,"lat":40.347},{"id":355,"name":"PA- LANCASTER","state":"PA","n_hospitals":6,"total_beds":974,"degree_cent":0.0165016501650165,"betweenness_cent":0.03904661989377745,"eigenvector_cent":0.0003062263123798603,"btw_rank":82,"deg_rank":142,"community":6,"lon":-76.0863,"lat":40.0836},{"id":356,"name":"PA- PHILADELPHIA","state":"NJ","n_hospitals":42,"total_beds":8889,"degree_cent":0.023102310231023104,"betweenness_cent":0.06285926605905623,"eigenvector_cent":3.216806864552066e-05,"btw_rank":51,"deg_rank":56,"community":6,"lon":-75.1879,"lat":40.0225},{"id":357,"name":"PA- PITTSBURGH","state":"OH","n_hospitals":44,"total_beds":8238,"degree_cent":0.026402640264026403,"betweenness_cent":0.01940856337289358,"eigenvector_cent":0.000164322591388699,"btw_rank":132,"deg_rank":31,"community":7,"lon":-80.2738,"lat":40.2318},{"id":358,"name":"PA- READING","state":"PA","n_hospitals":6,"total_beds":733,"degree_cent":0.0165016501650165,"betweenness_cent":0.02343015758529495,"eigenvector_cent":3.0214793539168656e-05,"btw_rank":118,"deg_rank":142,"community":6,"lon":-75.9912,"lat":40.43},{"id":359,"name":"PA- SAYRE","state":"NY","n_hospitals":6,"total_beds":394,"degree_cent":0.023102310231023104,"betweenness_cent":0.06504491508753524,"eigenvector_cent":2.9293206773872978e-06,"btw_rank":48,"deg_rank":56,"community":6,"lon":-76.7701,"lat":41.9575},{"id":360,"name":"PA- SCRANTON","state":"PA","n_hospitals":5,"total_beds":628,"degree_cent":0.019801980198019802,"betweenness_cent":0.06641094573033463,"eigenvector_cent":4.3242487466006943e-07,"btw_rank":46,"deg_rank":93,"community":6,"lon":-75.3016,"lat":41.6055},{"id":362,"name":"PA- WILKES-BARRE","state":"PA","n_hospitals":2,"total_beds":480,"degree_cent":0.013201320132013201,"betweenness_cent":0.05972285970318886,"eigenvector_cent":7.040156755519358e-07,"btw_rank":57,"deg_rank":198,"community":6,"lon":-75.7885,"lat":41.1877},{"id":363,"name":"PA- YORK","state":"PA","n_hospitals":5,"total_beds":521,"degree_cent":0.006600660066006601,"betweenness_cent":0.0,"eigenvector_cent":0.00025633238615177143,"btw_rank":281,"deg_rank":286,"community":2,"lon":-76.8085,"lat":39.9348},{"id":364,"name":"RI- PROVIDENCE","state":"MA","n_hospitals":12,"total_beds":2666,"degree_cent":0.013201320132013201,"betweenness_cent":0.0005464122571197517,"eigenvector_cent":2.715224061218059e-09,"btw_rank":239,"deg_rank":198,"community":6,"lon":-71.4818,"lat":41.5226},{"id":365,"name":"SC- CHARLESTON","state":"SC","n_hospitals":12,"total_beds":2633,"degree_cent":0.0165016501650165,"betweenness_cent":0.07837737416125719,"eigenvector_cent":8.943227131470628e-06,"btw_rank":28,"deg_rank":142,"community":0,"lon":-79.9466,"lat":33.1265},{"id":366,"name":"SC- COLUMBIA","state":"SC","n_hospitals":14,"total_beds":3030,"degree_cent":0.023102310231023104,"betweenness_cent":0.003868598780407842,"eigenvector_cent":6.114985443904799e-05,"btw_rank":214,"deg_rank":56,"community":0,"lon":-81.3341,"lat":33.903},{"id":367,"name":"SC- FLORENCE","state":"SC","n_hospitals":9,"total_beds":1206,"degree_cent":0.0165016501650165,"betweenness_cent":0.007168928813411142,"eigenvector_cent":5.905307148157674e-06,"btw_rank":187,"deg_rank":142,"community":0,"lon":-79.5143,"lat":33.9376},{"id":368,"name":"SC- GREENVILLE","state":"SC","n_hospitals":11,"total_beds":2123,"degree_cent":0.013201320132013201,"betweenness_cent":0.0007212641793980722,"eigenvector_cent":5.254076082939195e-05,"btw_rank":234,"deg_rank":198,"community":0,"lon":-82.5007,"lat":34.7691},{"id":369,"name":"SC- SPARTANBURG","state":"NC","n_hospitals":5,"total_beds":1007,"degree_cent":0.013201320132013201,"betweenness_cent":0.0037156033484143113,"eigenvector_cent":8.52743109174729e-06,"btw_rank":215,"deg_rank":198,"community":0,"lon":-81.9171,"lat":34.8742},{"id":370,"name":"SD- RAPID CITY","state":"NE","n_hospitals":11,"total_beds":620,"degree_cent":0.019801980198019802,"betweenness_cent":0.07697855878303062,"eigenvector_cent":0.08188985551866283,"btw_rank":29,"deg_rank":93,"community":10,"lon":-101.9954,"lat":44.6019},{"id":371,"name":"SD- SIOUX FALLS","state":"IA","n_hospitals":61,"total_beds":2668,"degree_cent":0.0297029702970297,"betweenness_cent":0.06935064367363888,"eigenvector_cent":0.28268567379375403,"btw_rank":43,"deg_rank":17,"community":10,"lon":-100.082,"lat":44.4361},{"id":373,"name":"TN- CHATTANOOGA","state":"GA","n_hospitals":7,"total_beds":2298,"degree_cent":0.019801980198019802,"betweenness_cent":0.04360369811815618,"eigenvector_cent":0.00026847890233187095,"btw_rank":73,"deg_rank":93,"community":0,"lon":-85.3047,"lat":35.1356},{"id":374,"name":"TN- JACKSON","state":"TN","n_hospitals":10,"total_beds":1267,"degree_cent":0.009900990099009901,"betweenness_cent":0.0,"eigenvector_cent":0.0006157371523879674,"btw_rank":281,"deg_rank":251,"community":0,"lon":-88.5131,"lat":35.9313},{"id":375,"name":"TN- JOHNSON CITY","state":"NC","n_hospitals":6,"total_beds":777,"degree_cent":0.0165016501650165,"betweenness_cent":0.011758791773217056,"eigenvector_cent":4.0626711661110854e-05,"btw_rank":154,"deg_rank":142,"community":0,"lon":-82.1,"lat":36.2962},{"id":376,"name":"TN- KINGSPORT","state":"TN","n_hospitals":11,"total_beds":1940,"degree_cent":0.019801980198019802,"betweenness_cent":0.03134220706838896,"eigenvector_cent":0.00016017740970754316,"btw_rank":102,"deg_rank":93,"community":0,"lon":-82.1574,"lat":36.9663},{"id":377,"name":"TN- KNOXVILLE","state":"KY","n_hospitals":25,"total_beds":4220,"degree_cent":0.023102310231023104,"betweenness_cent":0.030030817651301552,"eigenvector_cent":0.0006092915789722781,"btw_rank":107,"deg_rank":56,"community":0,"lon":-84.2126,"lat":35.8334},{"id":379,"name":"TN- MEMPHIS","state":"AR","n_hospitals":25,"total_beds":5482,"degree_cent":0.033003300330033,"betweenness_cent":0.03685004262015605,"eigenvector_cent":0.003942013087162267,"btw_rank":88,"deg_rank":8,"community":1,"lon":-90.0363,"lat":34.8435},{"id":380,"name":"TN- NASHVILLE","state":"KY","n_hospitals":53,"total_beds":7825,"degree_cent":0.033003300330033,"betweenness_cent":0.09077000415273315,"eigenvector_cent":0.001980619036309274,"btw_rank":16,"deg_rank":8,"community":0,"lon":-86.9147,"lat":36.1925},{"id":382,"name":"TX- ABILENE","state":"TX","n_hospitals":14,"total_beds":1323,"degree_cent":0.0297029702970297,"betweenness_cent":0.13852643542499946,"eigenvector_cent":0.011558607793054555,"btw_rank":3,"deg_rank":17,"community":5,"lon":-98.6912,"lat":31.8792},{"id":383,"name":"TX- AMARILLO","state":"KS","n_hospitals":21,"total_beds":1347,"degree_cent":0.019801980198019802,"betweenness_cent":0.06419251196642843,"eigenvector_cent":0.15162332691908334,"btw_rank":49,"deg_rank":93,"community":3,"lon":-102.5521,"lat":35.537},{"id":385,"name":"TX- AUSTIN","state":"TX","n_hospitals":21,"total_beds":3200,"degree_cent":0.0165016501650165,"betweenness_cent":0.0,"eigenvector_cent":0.002123732150282016,"btw_rank":281,"deg_rank":142,"community":5,"lon":-97.6052,"lat":30.3126},{"id":386,"name":"TX- BEAUMONT","state":"TX","n_hospitals":6,"total_beds":1117,"degree_cent":0.006600660066006601,"betweenness_cent":0.0034751819552816207,"eigenvector_cent":0.000209828149701581,"btw_rank":221,"deg_rank":286,"community":5,"lon":-93.8474,"lat":30.6104},{"id":388,"name":"TX- BRYAN","state":"TX","n_hospitals":7,"total_beds":630,"degree_cent":0.0165016501650165,"betweenness_cent":0.011693222302362687,"eigenvector_cent":0.0016529619037927664,"btw_rank":155,"deg_rank":142,"community":5,"lon":-96.2015,"lat":30.8245},{"id":390,"name":"TX- CORPUS CHRISTI","state":"TX","n_hospitals":7,"total_beds":1731,"degree_cent":0.0165016501650165,"betweenness_cent":0.00963871221559242,"eigenvector_cent":0.007855582953453502,"btw_rank":168,"deg_rank":142,"community":5,"lon":-97.3189,"lat":27.8052},{"id":391,"name":"TX- DALLAS","state":"OK","n_hospitals":68,"total_beds":10308,"degree_cent":0.026402640264026403,"betweenness_cent":0.011562083360653945,"eigenvector_cent":0.1213151027505259,"btw_rank":156,"deg_rank":31,"community":3,"lon":-96.2414,"lat":33.3062},{"id":393,"name":"TX- EL PASO","state":"NM","n_hospitals":15,"total_beds":2470,"degree_cent":0.009900990099009901,"betweenness_cent":0.00950757327388368,"eigenvector_cent":0.009960102760166565,"btw_rank":171,"deg_rank":251,"community":5,"lon":-106.0879,"lat":31.7417},{"id":394,"name":"TX- FORT WORTH","state":"TX","n_hospitals":29,"total_beds":4388,"degree_cent":0.013201320132013201,"betweenness_cent":0.0,"eigenvector_cent":0.03169255715461316,"btw_rank":281,"deg_rank":198,"community":3,"lon":-97.8603,"lat":32.6763},{"id":396,"name":"TX- HARLINGEN","state":"TX","n_hospitals":5,"total_beds":1283,"degree_cent":0.006600660066006601,"betweenness_cent":0.0,"eigenvector_cent":0.00023844003863210189,"btw_rank":281,"deg_rank":286,"community":5,"lon":-97.4475,"lat":26.2909},{"id":397,"name":"TX- HOUSTON","state":"TX","n_hospitals":74,"total_beds":14559,"degree_cent":0.023102310231023104,"betweenness_cent":0.006272812711734749,"eigenvector_cent":0.003788362125392602,"btw_rank":200,"deg_rank":56,"community":5,"lon":-95.3509,"lat":29.8272},{"id":399,"name":"TX- LONGVIEW","state":"TX","n_hospitals":1,"total_beds":155,"degree_cent":0.009900990099009901,"betweenness_cent":0.08567744191637706,"eigenvector_cent":0.0004765003194009813,"btw_rank":23,"deg_rank":251,"community":1,"lon":-94.5759,"lat":32.8025},{"id":400,"name":"TX- LUBBOCK","state":"NM","n_hospitals":26,"total_beds":2569,"degree_cent":0.023102310231023104,"betweenness_cent":0.004305728586103643,"eigenvector_cent":0.034245919913229006,"btw_rank":211,"deg_rank":56,"community":5,"lon":-102.8563,"lat":34.2023},{"id":402,"name":"TX- MCALLEN","state":"TX","n_hospitals":6,"total_beds":1921,"degree_cent":0.009900990099009901,"betweenness_cent":0.0034970384455664106,"eigenvector_cent":0.0004144265333655015,"btw_rank":220,"deg_rank":251,"community":5,"lon":-98.5394,"lat":26.3061},{"id":406,"name":"TX- ODESSA","state":"TX","n_hospitals":11,"total_beds":1010,"degree_cent":0.013201320132013201,"betweenness_cent":0.012370773501191179,"eigenvector_cent":0.0036891557573434128,"btw_rank":153,"deg_rank":198,"community":5,"lon":-103.4095,"lat":29.9332},{"id":411,"name":"TX- SAN ANGELO","state":"TX","n_hospitals":10,"total_beds":687,"degree_cent":0.013201320132013201,"betweenness_cent":0.008655170152776866,"eigenvector_cent":0.0035483434209791975,"btw_rank":177,"deg_rank":198,"community":5,"lon":-100.3057,"lat":31.3374},{"id":412,"name":"TX- SAN ANTONIO","state":"TX","n_hospitals":29,"total_beds":6401,"degree_cent":0.026402640264026403,"betweenness_cent":0.017375909776408103,"eigenvector_cent":0.003166952782598607,"btw_rank":143,"deg_rank":31,"community":5,"lon":-100.1808,"lat":29.1951},{"id":413,"name":"TX- TEMPLE","state":"TX","n_hospitals":8,"total_beds":922,"degree_cent":0.013201320132013201,"betweenness_cent":0.008305466308220226,"eigenvector_cent":0.0013276239729735292,"btw_rank":180,"deg_rank":198,"community":5,"lon":-97.5839,"lat":30.9766},{"id":416,"name":"TX- TYLER","state":"TX","n_hospitals":13,"total_beds":1365,"degree_cent":0.023102310231023104,"betweenness_cent":0.059777500928900835,"eigenvector_cent":0.016197472461426762,"btw_rank":56,"deg_rank":56,"community":5,"lon":-95.3793,"lat":32.2592},{"id":417,"name":"TX- VICTORIA","state":"TX","n_hospitals":6,"total_beds":604,"degree_cent":0.009900990099009901,"betweenness_cent":0.004240159115249273,"eigenvector_cent":0.0006166200268451626,"btw_rank":212,"deg_rank":251,"community":5,"lon":-97.0658,"lat":28.5949},{"id":418,"name":"TX- WACO","state":"TX","n_hospitals":9,"total_beds":694,"degree_cent":0.019801980198019802,"betweenness_cent":0.0530457019211855,"eigenvector_cent":0.013335206612137683,"btw_rank":61,"deg_rank":93,"community":5,"lon":-97.1109,"lat":31.6795},{"id":420,"name":"TX- WICHITA FALLS","state":"TX","n_hospitals":12,"total_beds":873,"degree_cent":0.023102310231023104,"betweenness_cent":0.05086005289270649,"eigenvector_cent":0.062037028083578236,"btw_rank":67,"deg_rank":56,"community":3,"lon":-98.6299,"lat":33.8986},{"id":421,"name":"UT- OGDEN","state":"UT","n_hospitals":5,"total_beds":715,"degree_cent":0.0033003300330033004,"betweenness_cent":0.0,"eigenvector_cent":0.00417026745327588,"btw_rank":281,"deg_rank":299,"community":2,"lon":-112.1666,"lat":41.3475},{"id":422,"name":"UT- PROVO","state":"UT","n_hospitals":11,"total_beds":798,"degree_cent":0.0033003300330033004,"betweenness_cent":0.0,"eigenvector_cent":0.008173352692389271,"btw_rank":281,"deg_rank":299,"community":2,"lon":-111.8398,"lat":39.8486},{"id":423,"name":"UT- SALT LAKE CITY","state":"CO","n_hospitals":44,"total_beds":3484,"degree_cent":0.039603960396039604,"betweenness_cent":0.0998841606014906,"eigenvector_cent":0.09359703504973141,"btw_rank":13,"deg_rank":1,"community":2,"lon":-111.4538,"lat":39.4902},{"id":424,"name":"VT- BURLINGTON","state":"NY","n_hospitals":13,"total_beds":1678,"degree_cent":0.013201320132013201,"betweenness_cent":0.005136275216925666,"eigenvector_cent":4.794838286815629e-08,"btw_rank":206,"deg_rank":198,"community":6,"lon":-73.4651,"lat":44.3988},{"id":426,"name":"VA- ARLINGTON","state":"VA","n_hospitals":12,"total_beds":2577,"degree_cent":0.013201320132013201,"betweenness_cent":0.0,"eigenvector_cent":6.026753219235715e-05,"btw_rank":281,"deg_rank":198,"community":7,"lon":-77.7374,"lat":38.8149},{"id":427,"name":"VA- CHARLOTTESVILLE","state":"VA","n_hospitals":7,"total_beds":1308,"degree_cent":0.023102310231023104,"betweenness_cent":0.07226848512665836,"eigenvector_cent":2.751021394063419e-05,"btw_rank":35,"deg_rank":56,"community":7,"lon":-78.9329,"lat":38.2024},{"id":428,"name":"VA- LYNCHBURG","state":"VA","n_hospitals":2,"total_beds":265,"degree_cent":0.013201320132013201,"betweenness_cent":0.1087032544314034,"eigenvector_cent":2.4940257356318294e-06,"btw_rank":11,"deg_rank":198,"community":0,"lon":-79.2594,"lat":37.2649},{"id":429,"name":"VA- NEWPORT NEWS","state":"VA","n_hospitals":6,"total_beds":1110,"degree_cent":0.006600660066006601,"betweenness_cent":0.0,"eigenvector_cent":3.32815227125195e-05,"btw_rank":281,"deg_rank":286,"community":0,"lon":-76.5451,"lat":37.2896},{"id":430,"name":"VA- NORFOLK","state":"NC","n_hospitals":12,"total_beds":2484,"degree_cent":0.019801980198019802,"betweenness_cent":0.1928070290472756,"eigenvector_cent":0.0007658151931288006,"btw_rank":1,"deg_rank":93,"community":0,"lon":-75.973,"lat":36.6592},{"id":431,"name":"VA- RICHMOND","state":"VA","n_hospitals":17,"total_beds":3611,"degree_cent":0.023102310231023104,"betweenness_cent":0.051843594955522036,"eigenvector_cent":6.552890911837436e-05,"btw_rank":64,"deg_rank":56,"community":0,"lon":-77.1911,"lat":37.4903},{"id":432,"name":"VA- ROANOKE","state":"VA","n_hospitals":14,"total_beds":2530,"degree_cent":0.019801980198019802,"betweenness_cent":0.03969138635717876,"eigenvector_cent":3.7023780875668104e-05,"btw_rank":80,"deg_rank":93,"community":0,"lon":-80.6447,"lat":37.2758},{"id":435,"name":"VA- WINCHESTER","state":"VA","n_hospitals":9,"total_beds":907,"degree_cent":0.013201320132013201,"betweenness_cent":0.0025134963827508575,"eigenvector_cent":5.098021598053093e-05,"btw_rank":223,"deg_rank":198,"community":7,"lon":-78.514,"lat":39.0853},{"id":437,"name":"WA- EVERETT","state":"WA","n_hospitals":8,"total_beds":681,"degree_cent":0.009900990099009901,"betweenness_cent":0.0,"eigenvector_cent":0.00021483319365085446,"btw_rank":281,"deg_rank":251,"community":2,"lon":-122.4997,"lat":48.3764},{"id":438,"name":"WA- OLYMPIA","state":"WA","n_hospitals":7,"total_beds":675,"degree_cent":0.013201320132013201,"betweenness_cent":0.00657880357572181,"eigenvector_cent":0.00013832326705715377,"btw_rank":196,"deg_rank":198,"community":2,"lon":-122.9166,"lat":46.9547},{"id":439,"name":"WA- SEATTLE","state":"WA","n_hospitals":23,"total_beds":4404,"degree_cent":0.013201320132013201,"betweenness_cent":0.0,"eigenvector_cent":3.3647581051059947e-05,"btw_rank":281,"deg_rank":198,"community":2,"lon":-122.876,"lat":47.6267},{"id":440,"name":"WA- SPOKANE","state":"ID","n_hospitals":43,"total_beds":2825,"degree_cent":0.0165016501650165,"betweenness_cent":0.00021856490284790067,"eigenvector_cent":0.00303569628056499,"btw_rank":250,"deg_rank":142,"community":2,"lon":-117.5214,"lat":46.8975},{"id":441,"name":"WA- TACOMA","state":"WA","n_hospitals":5,"total_beds":1200,"degree_cent":0.006600660066006601,"betweenness_cent":0.0,"eigenvector_cent":5.371828015967205e-06,"btw_rank":281,"deg_rank":286,"community":2,"lon":-122.4167,"lat":47.0775},{"id":442,"name":"WA- YAKIMA","state":"WA","n_hospitals":6,"total_beds":421,"degree_cent":0.0165016501650165,"betweenness_cent":0.013857014840556903,"eigenvector_cent":0.0002839452991332907,"btw_rank":148,"deg_rank":142,"community":2,"lon":-120.7092,"lat":46.7222},{"id":443,"name":"WV- CHARLESTON","state":"WV","n_hospitals":23,"total_beds":2801,"degree_cent":0.026402640264026403,"betweenness_cent":0.0367407601687321,"eigenvector_cent":0.0002723618890105769,"btw_rank":89,"deg_rank":31,"community":7,"lon":-81.2376,"lat":38.3358},{"id":444,"name":"WV- HUNTINGTON","state":"KY","n_hospitals":7,"total_beds":1647,"degree_cent":0.009900990099009901,"betweenness_cent":0.03560422267392302,"eigenvector_cent":0.00010339503336944727,"btw_rank":91,"deg_rank":251,"community":7,"lon":-82.5555,"lat":38.372},{"id":445,"name":"WV- MORGANTOWN","state":"MD","n_hospitals":10,"total_beds":1445,"degree_cent":0.019801980198019802,"betweenness_cent":0.058302187834677506,"eigenvector_cent":8.305954382655514e-05,"btw_rank":58,"deg_rank":93,"community":7,"lon":-80.033,"lat":39.1802},{"id":446,"name":"WI- APPLETON","state":"WI","n_hospitals":7,"total_beds":580,"degree_cent":0.0165016501650165,"betweenness_cent":0.0023495727056149322,"eigenvector_cent":0.0007382318057034363,"btw_rank":225,"deg_rank":142,"community":10,"lon":-88.6855,"lat":44.6463},{"id":447,"name":"WI- GREEN BAY","state":"MI","n_hospitals":11,"total_beds":1430,"degree_cent":0.013201320132013201,"betweenness_cent":0.0,"eigenvector_cent":0.00017932512418151138,"btw_rank":281,"deg_rank":198,"community":10,"lon":-87.7239,"lat":45.1929},{"id":448,"name":"WI- LA CROSSE","state":"IA","n_hospitals":11,"total_beds":924,"degree_cent":0.023102310231023104,"betweenness_cent":0.03903569164863506,"eigenvector_cent":0.01483572777606682,"btw_rank":83,"deg_rank":56,"community":10,"lon":-91.1442,"lat":43.6934},{"id":449,"name":"WI- MADISON","state":"WI","n_hospitals":25,"total_beds":2721,"degree_cent":0.019801980198019802,"betweenness_cent":0.0010928245142395035,"eigenvector_cent":0.0025103398959815774,"btw_rank":233,"deg_rank":93,"community":10,"lon":-89.892,"lat":43.1788},{"id":450,"name":"WI- MARSHFIELD","state":"WI","n_hospitals":12,"total_beds":1276,"degree_cent":0.023102310231023104,"betweenness_cent":0.0266212051668743,"eigenvector_cent":0.014406826002247288,"btw_rank":112,"deg_rank":56,"community":10,"lon":-90.4262,"lat":45.2608},{"id":451,"name":"WI- MILWAUKEE","state":"IL","n_hospitals":30,"total_beds":6809,"degree_cent":0.023102310231023104,"betweenness_cent":0.007343780735689463,"eigenvector_cent":0.0004982975118495232,"btw_rank":185,"deg_rank":56,"community":10,"lon":-88.2382,"lat":43.2387},{"id":452,"name":"WI- NEENAH","state":"WI","n_hospitals":7,"total_beds":477,"degree_cent":0.013201320132013201,"betweenness_cent":0.0006666229536860971,"eigenvector_cent":0.000821860178330929,"btw_rank":237,"deg_rank":198,"community":10,"lon":-88.7251,"lat":44.0255},{"id":456,"name":"WI- WAUSAU","state":"WI","n_hospitals":6,"total_beds":551,"degree_cent":0.0165016501650165,"betweenness_cent":0.022075055187637967,"eigenvector_cent":0.0013138885068274533,"btw_rank":125,"deg_rank":142,"community":10,"lon":-89.5841,"lat":45.5639},{"id":457,"name":"WY- CASPER","state":"WY","n_hospitals":12,"total_beds":573,"degree_cent":0.0165016501650165,"betweenness_cent":0.021331934517955106,"eigenvector_cent":0.039732847746261665,"btw_rank":128,"deg_rank":142,"community":2,"lon":-106.8272,"lat":43.059}],"edges":[{"a":1,"b":5},{"a":1,"b":6},{"a":1,"b":7},{"a":1,"b":9},{"a":1,"b":144},{"a":1,"b":146},{"a":1,"b":148},{"a":1,"b":260},{"a":1,"b":262},{"a":1,"b":373},{"a":1,"b":379},{"a":1,"b":380},{"a":2,"b":7},{"a":2,"b":133},{"a":2,"b":134},{"a":2,"b":140},{"a":2,"b":142},{"a":2,"b":146},{"a":5,"b":373},{"a":5,"b":380},{"a":6,"b":7},{"a":6,"b":134},{"a":6,"b":257},{"a":6,"b":258},{"a":6,"b":260},{"a":7,"b":134},{"a":7,"b":146},{"a":9,"b":260},{"a":9,"b":262},{"a":11,"b":12},{"a":11,"b":15},{"a":12,"b":14},{"a":12,"b":15},{"a":12,"b":80},{"a":12,"b":223},{"a":12,"b":279},{"a":12,"b":293},{"a":12,"b":423},{"a":15,"b":293},{"a":16,"b":19},{"a":16,"b":21},{"a":16,"b":22},{"a":16,"b":339},{"a":16,"b":340},{"a":18,"b":19},{"a":18,"b":263},{"a":18,"b":270},{"a":18,"b":273},{"a":18,"b":379},{"a":19,"b":21},{"a":19,"b":22},{"a":19,"b":217},{"a":19,"b":219},{"a":19,"b":270},{"a":19,"b":379},{"a":21,"b":267},{"a":21,"b":270},{"a":21,"b":340},{"a":22,"b":219},{"a":22,"b":339},{"a":22,"b":391},{"a":22,"b":399},{"a":22,"b":416},{"a":23,"b":56},{"a":23,"b":79},{"a":23,"b":80},{"a":25,"b":43},{"a":25,"b":56},{"a":25,"b":79},{"a":25,"b":83},{"a":31,"b":73},{"a":31,"b":77},{"a":31,"b":280},{"a":33,"b":62},{"a":33,"b":65},{"a":33,"b":77},{"a":33,"b":81},{"a":33,"b":91},{"a":43,"b":58},{"a":43,"b":78},{"a":43,"b":82},{"a":43,"b":83},{"a":43,"b":280},{"a":56,"b":79},{"a":56,"b":96},{"a":58,"b":65},{"a":58,"b":82},{"a":58,"b":91},{"a":58,"b":280},{"a":62,"b":73},{"a":62,"b":77},{"a":62,"b":81},{"a":62,"b":89},{"a":65,"b":81},{"a":65,"b":82},{"a":65,"b":91},{"a":69,"b":79},{"a":69,"b":80},{"a":69,"b":279},{"a":73,"b":343},{"a":77,"b":91},{"a":77,"b":280},{"a":78,"b":82},{"a":78,"b":83},{"a":78,"b":87},{"a":79,"b":80},{"a":79,"b":279},{"a":80,"b":279},{"a":81,"b":85},{"a":81,"b":89},{"a":82,"b":85},{"a":82,"b":87},{"a":83,"b":86},{"a":85,"b":87},{"a":86,"b":96},{"a":101,"b":103},{"a":101,"b":104},{"a":101,"b":106},{"a":102,"b":103},{"a":102,"b":105},{"a":102,"b":107},{"a":102,"b":201},{"a":102,"b":293},{"a":102,"b":383},{"a":103,"b":104},{"a":103,"b":105},{"a":103,"b":106},{"a":103,"b":201},{"a":103,"b":277},{"a":103,"b":370},{"a":103,"b":423},{"a":103,"b":457},{"a":104,"b":106},{"a":104,"b":457},{"a":105,"b":293},{"a":105,"b":423},{"a":109,"b":111},{"a":109,"b":308},{"a":110,"b":111},{"a":110,"b":230},{"a":110,"b":231},{"a":110,"b":295},{"a":110,"b":364},{"a":111,"b":295},{"a":111,"b":308},{"a":111,"b":364},{"a":112,"b":223},{"a":112,"b":225},{"a":112,"b":283},{"a":112,"b":355},{"a":112,"b":356},{"a":113,"b":223},{"a":113,"b":226},{"a":113,"b":347},{"a":113,"b":352},{"a":113,"b":354},{"a":113,"b":426},{"a":113,"b":435},{"a":113,"b":445},{"a":115,"b":124},{"a":115,"b":130},{"a":115,"b":137},{"a":115,"b":141},{"a":116,"b":122},{"a":116,"b":139},{"a":116,"b":141},{"a":118,"b":119},{"a":118,"b":127},{"a":118,"b":130},{"a":119,"b":130},{"a":119,"b":137},{"a":120,"b":123},{"a":120,"b":129},{"a":120,"b":130},{"a":120,"b":131},{"a":120,"b":140},{"a":122,"b":129},{"a":122,"b":130},{"a":122,"b":141},{"a":123,"b":131},{"a":123,"b":140},{"a":123,"b":147},{"a":123,"b":149},{"a":124,"b":130},{"a":124,"b":141},{"a":129,"b":130},{"a":130,"b":131},{"a":130,"b":137},{"a":130,"b":141},{"a":133,"b":134},{"a":133,"b":140},{"a":140,"b":142},{"a":140,"b":147},{"a":142,"b":146},{"a":142,"b":147},{"a":144,"b":145},{"a":144,"b":146},{"a":144,"b":147},{"a":144,"b":148},{"a":144,"b":309},{"a":144,"b":366},{"a":144,"b":368},{"a":144,"b":373},{"a":144,"b":377},{"a":145,"b":147},{"a":145,"b":149},{"a":145,"b":365},{"a":145,"b":366},{"a":146,"b":147},{"a":147,"b":149},{"a":148,"b":373},{"a":149,"b":365},{"a":151,"b":152},{"a":151,"b":276},{"a":151,"b":280},{"a":151,"b":341},{"a":151,"b":344},{"a":151,"b":423},{"a":151,"b":440},{"a":152,"b":274},{"a":152,"b":276},{"a":152,"b":423},{"a":154,"b":163},{"a":154,"b":164},{"a":154,"b":166},{"a":154,"b":170},{"a":154,"b":171},{"a":155,"b":156},{"a":155,"b":164},{"a":155,"b":166},{"a":155,"b":181},{"a":155,"b":186},{"a":156,"b":161},{"a":156,"b":166},{"a":156,"b":186},{"a":156,"b":246},{"a":158,"b":161},{"a":158,"b":166},{"a":158,"b":171},{"a":158,"b":451},{"a":161,"b":166},{"a":161,"b":451},{"a":163,"b":164},{"a":163,"b":166},{"a":164,"b":166},{"a":164,"b":170},{"a":164,"b":173},{"a":164,"b":175},{"a":164,"b":181},{"a":164,"b":184},{"a":166,"b":171},{"a":170,"b":171},{"a":170,"b":172},{"a":170,"b":175},{"a":170,"b":191},{"a":171,"b":191},{"a":171,"b":193},{"a":171,"b":449},{"a":171,"b":451},{"a":172,"b":173},{"a":172,"b":175},{"a":172,"b":179},{"a":172,"b":191},{"a":172,"b":194},{"a":172,"b":264},{"a":172,"b":273},{"a":173,"b":175},{"a":173,"b":179},{"a":173,"b":183},{"a":173,"b":184},{"a":173,"b":188},{"a":179,"b":183},{"a":179,"b":188},{"a":179,"b":205},{"a":179,"b":207},{"a":179,"b":208},{"a":179,"b":273},{"a":180,"b":183},{"a":180,"b":185},{"a":180,"b":187},{"a":180,"b":232},{"a":180,"b":238},{"a":180,"b":330},{"a":180,"b":334},{"a":181,"b":183},{"a":181,"b":184},{"a":181,"b":186},{"a":181,"b":187},{"a":181,"b":248},{"a":183,"b":184},{"a":183,"b":185},{"a":183,"b":187},{"a":183,"b":188},{"a":183,"b":205},{"a":183,"b":327},{"a":183,"b":330},{"a":185,"b":330},{"a":187,"b":238},{"a":187,"b":248},{"a":190,"b":191},{"a":190,"b":192},{"a":190,"b":193},{"a":190,"b":194},{"a":190,"b":197},{"a":190,"b":448},{"a":191,"b":193},{"a":191,"b":194},{"a":192,"b":194},{"a":192,"b":195},{"a":192,"b":196},{"a":192,"b":197},{"a":192,"b":264},{"a":192,"b":268},{"a":192,"b":278},{"a":192,"b":371},{"a":193,"b":448},{"a":193,"b":449},{"a":194,"b":264},{"a":195,"b":197},{"a":195,"b":251},{"a":195,"b":253},{"a":195,"b":371},{"a":196,"b":278},{"a":196,"b":371},{"a":197,"b":253},{"a":197,"b":448},{"a":200,"b":201},{"a":200,"b":268},{"a":200,"b":277},{"a":200,"b":278},{"a":201,"b":267},{"a":201,"b":268},{"a":201,"b":277},{"a":201,"b":339},{"a":201,"b":340},{"a":201,"b":383},{"a":203,"b":204},{"a":203,"b":205},{"a":204,"b":205},{"a":204,"b":327},{"a":204,"b":329},{"a":204,"b":376},{"a":204,"b":377},{"a":204,"b":380},{"a":204,"b":443},{"a":204,"b":444},{"a":205,"b":207},{"a":205,"b":327},{"a":205,"b":380},{"a":207,"b":208},{"a":207,"b":380},{"a":208,"b":263},{"a":208,"b":273},{"a":208,"b":374},{"a":208,"b":379},{"a":208,"b":380},{"a":209,"b":210},{"a":209,"b":213},{"a":209,"b":214},{"a":209,"b":217},{"a":209,"b":219},{"a":209,"b":259},{"a":210,"b":212},{"a":210,"b":213},{"a":210,"b":216},{"a":210,"b":259},{"a":212,"b":213},{"a":212,"b":218},{"a":213,"b":214},{"a":214,"b":386},{"a":216,"b":218},{"a":216,"b":220},{"a":216,"b":258},{"a":216,"b":259},{"a":217,"b":219},{"a":217,"b":259},{"a":218,"b":220},{"a":219,"b":397},{"a":219,"b":399},{"a":219,"b":416},{"a":220,"b":257},{"a":220,"b":258},{"a":221,"b":222},{"a":222,"b":281},{"a":222,"b":282},{"a":223,"b":225},{"a":223,"b":226},{"a":223,"b":352},{"a":223,"b":355},{"a":223,"b":363},{"a":225,"b":430},{"a":227,"b":231},{"a":227,"b":282},{"a":227,"b":364},{"a":230,"b":231},{"a":230,"b":281},{"a":230,"b":295},{"a":231,"b":281},{"a":231,"b":282},{"a":231,"b":364},{"a":232,"b":233},{"a":232,"b":234},{"a":232,"b":235},{"a":232,"b":238},{"a":232,"b":239},{"a":232,"b":244},{"a":232,"b":245},{"a":232,"b":334},{"a":233,"b":234},{"a":233,"b":334},{"a":234,"b":235},{"a":234,"b":245},{"a":234,"b":246},{"a":235,"b":239},{"a":235,"b":244},{"a":235,"b":245},{"a":235,"b":246},{"a":236,"b":238},{"a":236,"b":239},{"a":236,"b":242},{"a":236,"b":248},{"a":236,"b":249},{"a":238,"b":239},{"a":238,"b":248},{"a":239,"b":246},{"a":239,"b":249},{"a":240,"b":243},{"a":240,"b":250},{"a":240,"b":447},{"a":240,"b":456},{"a":242,"b":249},{"a":243,"b":246},{"a":243,"b":249},{"a":244,"b":245},{"a":246,"b":249},{"a":250,"b":251},{"a":250,"b":450},{"a":250,"b":456},{"a":251,"b":253},{"a":251,"b":254},{"a":251,"b":256},{"a":251,"b":322},{"a":251,"b":323},{"a":251,"b":371},{"a":251,"b":448},{"a":251,"b":450},{"a":253,"b":256},{"a":253,"b":448},{"a":257,"b":258},{"a":258,"b":259},{"a":258,"b":260},{"a":259,"b":260},{"a":259,"b":261},{"a":259,"b":262},{"a":259,"b":379},{"a":260,"b":262},{"a":261,"b":262},{"a":261,"b":379},{"a":262,"b":379},{"a":263,"b":273},{"a":263,"b":379},{"a":264,"b":268},{"a":264,"b":270},{"a":264,"b":273},{"a":267,"b":268},{"a":267,"b":270},{"a":267,"b":340},{"a":268,"b":270},{"a":268,"b":278},{"a":270,"b":273},{"a":274,"b":275},{"a":274,"b":276},{"a":274,"b":321},{"a":274,"b":324},{"a":274,"b":370},{"a":274,"b":423},{"a":274,"b":457},{"a":275,"b":276},{"a":276,"b":440},{"a":277,"b":278},{"a":277,"b":370},{"a":277,"b":371},{"a":278,"b":371},{"a":279,"b":280},{"a":279,"b":423},{"a":280,"b":341},{"a":280,"b":343},{"a":280,"b":423},{"a":281,"b":282},{"a":281,"b":295},{"a":281,"b":424},{"a":283,"b":288},{"a":283,"b":356},{"a":284,"b":289},{"a":284,"b":291},{"a":284,"b":292},{"a":284,"b":308},{"a":285,"b":288},{"a":285,"b":289},{"a":285,"b":291},{"a":285,"b":292},{"a":285,"b":295},{"a":285,"b":308},{"a":285,"b":346},{"a":285,"b":356},{"a":285,"b":360},{"a":288,"b":289},{"a":288,"b":356},{"a":289,"b":291},{"a":291,"b":292},{"a":292,"b":308},{"a":293,"b":383},{"a":293,"b":393},{"a":293,"b":400},{"a":293,"b":423},{"a":295,"b":296},{"a":295,"b":300},{"a":295,"b":307},{"a":295,"b":308},{"a":295,"b":360},{"a":295,"b":424},{"a":296,"b":304},{"a":296,"b":307},{"a":296,"b":359},{"a":296,"b":360},{"a":297,"b":303},{"a":297,"b":308},{"a":299,"b":304},{"a":299,"b":351},{"a":300,"b":304},{"a":300,"b":307},{"a":300,"b":359},{"a":300,"b":424},{"a":301,"b":303},{"a":303,"b":308},{"a":304,"b":307},{"a":304,"b":351},{"a":304,"b":359},{"a":307,"b":424},{"a":309,"b":311},{"a":309,"b":315},{"a":309,"b":368},{"a":309,"b":369},{"a":309,"b":375},{"a":309,"b":377},{"a":311,"b":312},{"a":311,"b":313},{"a":311,"b":315},{"a":311,"b":320},{"a":311,"b":366},{"a":311,"b":367},{"a":311,"b":369},{"a":312,"b":313},{"a":312,"b":318},{"a":312,"b":319},{"a":312,"b":320},{"a":312,"b":367},{"a":312,"b":428},{"a":312,"b":431},{"a":312,"b":432},{"a":313,"b":320},{"a":314,"b":318},{"a":314,"b":319},{"a":314,"b":430},{"a":315,"b":320},{"a":315,"b":375},{"a":318,"b":319},{"a":318,"b":430},{"a":318,"b":431},{"a":319,"b":365},{"a":319,"b":367},{"a":320,"b":375},{"a":320,"b":376},{"a":320,"b":432},{"a":321,"b":322},{"a":321,"b":324},{"a":321,"b":370},{"a":321,"b":371},{"a":322,"b":323},{"a":322,"b":324},{"a":322,"b":371},{"a":323,"b":324},{"a":325,"b":326},{"a":325,"b":328},{"a":325,"b":335},{"a":326,"b":328},{"a":326,"b":329},{"a":326,"b":335},{"a":326,"b":357},{"a":327,"b":329},{"a":327,"b":330},{"a":327,"b":332},{"a":328,"b":329},{"a":328,"b":331},{"a":328,"b":334},{"a":328,"b":335},{"a":328,"b":351},{"a":329,"b":330},{"a":329,"b":332},{"a":329,"b":334},{"a":329,"b":357},{"a":329,"b":443},{"a":329,"b":444},{"a":330,"b":332},{"a":330,"b":334},{"a":335,"b":351},{"a":335,"b":357},{"a":336,"b":339},{"a":336,"b":391},{"a":336,"b":420},{"a":339,"b":340},{"a":339,"b":383},{"a":339,"b":391},{"a":339,"b":420},{"a":341,"b":342},{"a":341,"b":343},{"a":341,"b":344},{"a":341,"b":345},{"a":342,"b":343},{"a":342,"b":344},{"a":342,"b":345},{"a":344,"b":345},{"a":344,"b":438},{"a":344,"b":440},{"a":344,"b":442},{"a":346,"b":350},{"a":346,"b":356},{"a":346,"b":358},{"a":346,"b":360},{"a":346,"b":362},{"a":347,"b":350},{"a":347,"b":351},{"a":347,"b":352},{"a":347,"b":354},{"a":347,"b":357},{"a":350,"b":351},{"a":350,"b":352},{"a":350,"b":358},{"a":350,"b":359},{"a":350,"b":362},{"a":351,"b":357},{"a":351,"b":359},{"a":352,"b":355},{"a":352,"b":358},{"a":352,"b":363},{"a":354,"b":357},{"a":354,"b":445},{"a":355,"b":356},{"a":355,"b":358},{"a":356,"b":358},{"a":357,"b":443},{"a":357,"b":445},{"a":359,"b":360},{"a":359,"b":362},{"a":360,"b":362},{"a":365,"b":366},{"a":365,"b":367},{"a":366,"b":367},{"a":366,"b":368},{"a":366,"b":369},{"a":368,"b":369},{"a":370,"b":371},{"a":370,"b":457},{"a":373,"b":377},{"a":373,"b":380},{"a":374,"b":379},{"a":374,"b":380},{"a":375,"b":376},{"a":375,"b":377},{"a":376,"b":377},{"a":376,"b":432},{"a":376,"b":443},{"a":377,"b":380},{"a":379,"b":380},{"a":382,"b":385},{"a":382,"b":394},{"a":382,"b":400},{"a":382,"b":411},{"a":382,"b":412},{"a":382,"b":413},{"a":382,"b":418},{"a":382,"b":420},{"a":382,"b":430},{"a":383,"b":400},{"a":383,"b":420},{"a":385,"b":388},{"a":385,"b":397},{"a":385,"b":412},{"a":385,"b":413},{"a":386,"b":397},{"a":388,"b":397},{"a":388,"b":413},{"a":388,"b":416},{"a":388,"b":418},{"a":390,"b":391},{"a":390,"b":396},{"a":390,"b":402},{"a":390,"b":412},{"a":390,"b":417},{"a":391,"b":394},{"a":391,"b":416},{"a":391,"b":418},{"a":391,"b":420},{"a":393,"b":400},{"a":393,"b":406},{"a":394,"b":418},{"a":394,"b":420},{"a":396,"b":402},{"a":397,"b":412},{"a":397,"b":416},{"a":397,"b":417},{"a":399,"b":416},{"a":400,"b":406},{"a":400,"b":411},{"a":400,"b":420},{"a":402,"b":412},{"a":406,"b":411},{"a":406,"b":412},{"a":411,"b":412},{"a":412,"b":417},{"a":413,"b":418},{"a":416,"b":418},{"a":421,"b":423},{"a":422,"b":423},{"a":423,"b":457},{"a":426,"b":427},{"a":426,"b":431},{"a":426,"b":435},{"a":427,"b":428},{"a":427,"b":431},{"a":427,"b":432},{"a":427,"b":435},{"a":427,"b":443},{"a":427,"b":445},{"a":428,"b":431},{"a":428,"b":432},{"a":429,"b":430},{"a":429,"b":431},{"a":430,"b":431},{"a":432,"b":443},{"a":435,"b":445},{"a":437,"b":439},{"a":437,"b":440},{"a":437,"b":442},{"a":438,"b":439},{"a":438,"b":441},{"a":438,"b":442},{"a":439,"b":441},{"a":439,"b":442},{"a":440,"b":442},{"a":443,"b":444},{"a":443,"b":445},{"a":446,"b":447},{"a":446,"b":450},{"a":446,"b":451},{"a":446,"b":452},{"a":446,"b":456},{"a":447,"b":451},{"a":447,"b":456},{"a":448,"b":449},{"a":448,"b":450},{"a":449,"b":450},{"a":449,"b":451},{"a":449,"b":452},{"a":450,"b":452},{"a":450,"b":456},{"a":451,"b":452}]};
+
+// ═══════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════
+let nodes = [], edges = [], adjList = {};
+let sir = {};          // id -> 'S'|'I'|'R'
+let sentinels = new Set();
+let sourceNode = null;
+let step = 0;
+let playing = false;
+let playTimer = null;
+let detectionStep = null;
+let curveS = [], curveI = [], curveR = [], curveT = [];
+let totalEverInfected = 0;
+
+// ═══════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════
+
+function init() {
+  nodes = RAW.nodes;
+  edges = RAW.edges;
+
+  // Build adjacency list
+  adjList = {};
+  nodes.forEach(n => adjList[n.id] = []);
+  edges.forEach(e => {
+    if (adjList[e.a]) adjList[e.a].push(e.b);
+    if (adjList[e.b]) adjList[e.b].push(e.a);
+  });
+
+  // Init SIR
+  nodes.forEach(n => sir[n.id] = 'S');
+  sentinels = new Set();
+  sourceNode = null;
+  step = 0;
+  detectionStep = null;
+  curveS = []; curveI = []; curveR = []; curveT = [];
+  totalEverInfected = 0;
+
+  placeSentinels();
+  drawMap();
+  drawCurve();
+  updateStats();
+}
+
+// ═══════════════════════════════════════════════════════════
+// SENTINEL PLACEMENT
+// ═══════════════════════════════════════════════════════════
+
+function placeSentinels() {
+  const k = Math.max(1, parseInt(document.getElementById('sentinel-count').value) || 20);
+  const strategy = document.getElementById('strategy-sel').value;
+  let sorted = [...nodes];
+
+  if (strategy === 'degree') {
+    sorted.sort((a,b) => a.deg_rank - b.deg_rank);
+  } else if (strategy === 'betweenness') {
+    sorted.sort((a,b) => a.btw_rank - b.btw_rank);
+  } else if (strategy === 'community') {
+    // Pick top-degree node per community
+    const comms = {};
+    nodes.forEach(n => {
+      if (!comms[n.community] || n.deg_rank < comms[n.community].deg_rank)
+        comms[n.community] = n;
+    });
+    const seeds = Object.values(comms).sort((a,b) => a.deg_rank - b.deg_rank);
+    const chosen = new Set(seeds.map(n => n.id));
+    // Fill remaining by degree
+    let extra = sorted.filter(n => !chosen.has(n.id)).sort((a,b) => a.deg_rank - b.deg_rank);
+    let i = 0;
+    while (chosen.size < k && i < extra.length) { chosen.add(extra[i].id); i++; }
+    sentinels = new Set([...chosen].slice(0, k));
+    return;
+  } else {
+    // random
+    sorted.sort(() => Math.random() - 0.5);
+  }
+  sentinels = new Set(sorted.slice(0, k).map(n => n.id));
+}
+
+// ═══════════════════════════════════════════════════════════
+// MAP DRAWING (Plotly scatter geo)
+// ═══════════════════════════════════════════════════════════
+
+// US Albers-like projection: map lon/lat to x/y in [0,1]
+function project(lon, lat) {
+  // Simple equirectangular clipped to continental US
+  const lonMin = -125, lonMax = -66, latMin = 24, latMax = 50;
+  const x = (lon - lonMin) / (lonMax - lonMin);
+  const y = 1 - (lat - latMin) / (latMax - latMin);
+  return {x, y};
+}
+
+function nodeColor(n) {
+  const isSentinel = sentinels.has(n.id);
+  const state = sir[n.id];
+  if (state === 'I' && isSentinel) return '#e879f9';  // sentinel+infected
+  if (state === 'I') return '#ef4444';
+  if (state === 'R') return '#10b981';
+  if (isSentinel) return '#f59e0b';
+  return '#475569';
+}
+
+function nodeSize(n) {
+  const base = 5;
+  const beds = n.total_beds || 0;
+  return base + Math.sqrt(beds) * 0.04;
+}
+
+let gd = null;
+
+function drawMap() {
+  const W = document.getElementById('graph-div').clientWidth;
+  const H = document.getElementById('graph-div').clientHeight;
+
+  // Build edge lines
+  const edgeX = [], edgeY = [];
+  const nodeById = {};
+  nodes.forEach(n => nodeById[n.id] = n);
+
+  edges.forEach(e => {
+    const na = nodeById[e.a], nb = nodeById[e.b];
+    if (!na || !nb) return;
+    const pa = project(na.lon, na.lat);
+    const pb = project(nb.lon, nb.lat);
+    edgeX.push(pa.x, pb.x, null);
+    edgeY.push(pa.y, pb.y, null);
+  });
+
+  const nx = nodes.map(n => project(n.lon, n.lat).x);
+  const ny = nodes.map(n => project(n.lon, n.lat).y);
+  const colors = nodes.map(n => nodeColor(n));
+  const sizes  = nodes.map(n => nodeSize(n));
+  const texts  = nodes.map(n =>
+    `<b>${n.name}</b><br>State: ${n.state}<br>Hospitals: ${n.n_hospitals}<br>Beds: ${n.total_beds.toLocaleString()}<br>Degree rank: #${n.deg_rank}<br>Betweenness rank: #${n.btw_rank}<br>Community: ${n.community}<br>Status: ${sir[n.id]}${sentinels.has(n.id) ? ' 🟡 SENTINEL' : ''}`
+  );
+
+  const edgeTrace = {
+    type:'scatter', mode:'lines',
+    x: edgeX, y: edgeY,
+    line:{color:'rgba(100,116,139,0.25)', width:0.6},
+    hoverinfo:'none', showlegend:false, name:'edges'
+  };
+
+  const nodeTrace = {
+    type:'scatter', mode:'markers',
+    x: nx, y: ny,
+    marker:{
+      color: colors,
+      size: sizes,
+      line:{color:'rgba(255,255,255,0.15)', width:0.5},
+      sizemode:'diameter',
+    },
+    text: texts,
+    hovertemplate:'%{text}<extra></extra>',
+    customdata: nodes.map(n => n.id),
+    showlegend:false, name:'nodes'
+  };
+
+  // Source marker
+  let sourceTrace = {type:'scatter', mode:'markers', x:[], y:[], marker:{symbol:'star', size:18, color:'#fbbf24', line:{color:'#fff',width:1}}, hoverinfo:'none', showlegend:false, name:'source'};
+  if (sourceNode) {
+    const n = nodeById[sourceNode];
+    if (n) {
+      const p = project(n.lon, n.lat);
+      sourceTrace.x = [p.x]; sourceTrace.y = [p.y];
+    }
+  }
+
+  const layout = {
+    paper_bgcolor:'#0a0e1a', plot_bgcolor:'#0a0e1a',
+    margin:{l:0, r:0, t:0, b:0},
+    xaxis:{visible:false, range:[-0.02,1.02], fixedrange:false},
+    yaxis:{visible:false, range:[-0.02,1.02], scaleanchor:'x', fixedrange:false},
+    hovermode:'closest',
+    dragmode:'pan',
+    annotations: addUSOutline(),
+    shapes: [],
+  };
+
+  const config = {responsive:true, displayModeBar:true, modeBarButtonsToRemove:['select2d','lasso2d','autoScale2d'], displaylogo:false, scrollZoom:true};
+
+  if (!gd) {
+    Plotly.newPlot('graph-div', [edgeTrace, nodeTrace, sourceTrace], layout, config);
+    gd = document.getElementById('graph-div');
+
+    gd.on('plotly_click', function(data) {
+      const pt = data.points.find(p => p.data.name === 'nodes');
+      if (!pt) return;
+      const nid = pt.customdata;
+      const n = nodes.find(x => x.id === nid);
+      if (!n) return;
+      if (!playing) {
+        startFromNode(nid);
+      }
+      showInfo(n);
+    });
+
+    gd.on('plotly_hover', function(data) {
+      const pt = data.points.find(p => p.data.name === 'nodes');
+      if (!pt) return;
+      const n = nodes.find(x => x.id === pt.customdata);
+      if (n) showInfo(n);
+    });
+  } else {
+    Plotly.react('graph-div', [edgeTrace, nodeTrace, sourceTrace], layout, config);
+  }
+}
+
+function addUSOutline() {
+  // State label annotations for key states
+  const labels = [
+    {text:'CA', lon:-119.5, lat:37}, {text:'TX', lon:-99, lat:31},
+    {text:'NY', lon:-75.5, lat:43}, {text:'FL', lon:-83, lat:28},
+    {text:'IL', lon:-89, lat:40}, {text:'WA', lon:-120.5, lat:47.5},
+    {text:'OR', lon:-120.5, lat:44}, {text:'MT', lon:-110, lat:47},
+    {text:'ND', lon:-100, lat:47.3}, {text:'ME', lon:-69, lat:45.5},
+  ];
+  return labels.map(l => {
+    const p = project(l.lon, l.lat);
+    return {
+      x: p.x, y: p.y, xref:'x', yref:'y',
+      text: l.text, showarrow:false,
+      font:{size:9, color:'rgba(100,116,139,0.4)', family:'monospace'},
+    };
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// SIR SIMULATION
+// ═══════════════════════════════════════════════════════════
+
+function startFromNode(nid) {
+  // Reset SIR
+  nodes.forEach(n => sir[n.id] = 'S');
+  step = 0;
+  detectionStep = null;
+  curveS = []; curveI = []; curveR = []; curveT = [];
+  totalEverInfected = 0;
+  sourceNode = nid;
+  sir[nid] = 'I';
+  totalEverInfected = 1;
+  recordCurve();
+  updateStats();
+  drawMap();
+  drawCurve();
+  document.getElementById('status-bar').textContent =
+    `Outbreak seeded at ${nodes.find(n=>n.id===nid)?.name || nid} · Press Play or Step to advance`;
+  showToast(`Outbreak started at ${nodes.find(n=>n.id===nid)?.name || nid}`);
+}
+
+function stepSim() {
+  if (!sourceNode) { showToast('Click a node on the map first!'); return; }
+
+  const beta  = parseFloat(document.getElementById('beta-sl').value);
+  const gamma = parseFloat(document.getElementById('gamma-sl').value);
+
+  const newI = new Set(), newR = new Set();
+  nodes.forEach(n => {
+    if (sir[n.id] === 'I') {
+      // Try to infect neighbors
+      (adjList[n.id] || []).forEach(nb => {
+        if (sir[nb] === 'S' && Math.random() < beta) {
+          newI.add(nb);
+        }
+      });
+      // Recovery
+      if (Math.random() < gamma) newR.add(n.id);
+    }
+  });
+
+  newI.forEach(id => { sir[id] = 'I'; totalEverInfected++; });
+  newR.forEach(id => { sir[id] = 'R'; });
+  step++;
+
+  // Detection: any sentinel now infected?
+  if (detectionStep === null) {
+    for (let sid of sentinels) {
+      if (sir[sid] === 'I' || sir[sid] === 'R') {
+        detectionStep = step;
+        showToast(`🚨 Sentinel detected outbreak at step ${step}!`);
+        break;
+      }
+    }
+  }
+
+  recordCurve();
+  updateStats();
+  drawMap();
+  drawCurve();
+
+  const nI = nodes.filter(n => sir[n.id] === 'I').length;
+  document.getElementById('status-bar').textContent =
+    `Step ${step} · Infected: ${nI} · ${detectionStep ? 'Detected at step '+detectionStep : 'Not yet detected'}`;
+
+  if (nI === 0 && step > 1) {
+    pauseSim();
+    showToast('Epidemic ended · ' + (detectionStep ? `Detected at step ${detectionStep}` : 'Never detected'));
+  }
+}
+
+function recordCurve() {
+  const nS = nodes.filter(n => sir[n.id] === 'S').length;
+  const nI = nodes.filter(n => sir[n.id] === 'I').length;
+  const nR = nodes.filter(n => sir[n.id] === 'R').length;
+  curveT.push(step); curveS.push(nS); curveI.push(nI); curveR.push(nR);
+}
+
+function togglePlay() {
+  if (!sourceNode) { showToast('Click a node to seed outbreak first!'); return; }
+  playing ? pauseSim() : playSim();
+}
+
+function playSim() {
+  playing = true;
+  document.getElementById('play-btn').textContent = '⏸ Pause';
+  document.getElementById('play-btn').classList.add('active');
+  function tick() {
+    if (!playing) return;
+    const nI = nodes.filter(n => sir[n.id] === 'I').length;
+    if (nI === 0 && step > 1) { pauseSim(); return; }
+    stepSim();
+    const spd = parseInt(document.getElementById('speed-sel').value);
+    playTimer = setTimeout(tick, spd);
+  }
+  tick();
+}
+
+function pauseSim() {
+  playing = false;
+  clearTimeout(playTimer);
+  document.getElementById('play-btn').textContent = '▶ Play';
+  document.getElementById('play-btn').classList.remove('active');
+}
+
+function resetSim() {
+  pauseSim();
+  init();
+  showToast('Simulation reset');
+}
+
+// ═══════════════════════════════════════════════════════════
+// STATS & CURVES
+// ═══════════════════════════════════════════════════════════
+
+function updateStats() {
+  const nI = nodes.filter(n => sir[n.id] === 'I').length;
+  const nR = nodes.filter(n => sir[n.id] === 'R').length;
+  document.getElementById('s-step').textContent = step;
+  document.getElementById('s-detect').textContent = detectionStep !== null ? detectionStep : '—';
+  document.getElementById('s-infected').textContent = nI;
+  document.getElementById('s-recovered').textContent = nR;
+
+  // Amplification risk = total ever infected / n_hospitals * avg_beds scaled
+  const amp = sourceNode && step > 0
+    ? (totalEverInfected / nodes.length).toFixed(3)
+    : '—';
+  document.getElementById('s-amp').textContent = amp;
+}
+
+let curvePlotted = false;
+function drawCurve() {
+  const traces = [
+    {x: curveT, y: curveS, mode:'lines', name:'Susceptible', line:{color:'#94a3b8', width:2}},
+    {x: curveT, y: curveI, mode:'lines', name:'Infected',    line:{color:'#ef4444', width:2.5}},
+    {x: curveT, y: curveR, mode:'lines', name:'Recovered',   line:{color:'#10b981', width:2}},
+  ];
+
+  const detAnnotation = detectionStep !== null ? [{
+    x: detectionStep, y: 0, xref:'x', yref:'paper',
+    ax:0, ay:-20, axref:'pixel', ayref:'pixel',
+    text:'Detected', showarrow:true, arrowhead:2,
+    arrowcolor:'#f59e0b', font:{color:'#f59e0b', size:9},
+  }] : [];
+
+  const layout = {
+    paper_bgcolor:'#0f172a', plot_bgcolor:'#0f172a',
+    margin:{l:36, r:10, t:28, b:30},
+    title:{text:'SIR Infection Curves', font:{size:11, color:'#94a3b8'}, x:0.05},
+    xaxis:{title:{text:'Step', font:{size:9, color:'#64748b'}}, color:'#64748b', gridcolor:'#1e293b', tickfont:{size:8}},
+    yaxis:{title:{text:'Nodes', font:{size:9, color:'#64748b'}}, color:'#64748b', gridcolor:'#1e293b', tickfont:{size:8}},
+    legend:{font:{size:9, color:'#94a3b8'}, bgcolor:'transparent', x:0.65, y:0.95},
+    annotations: detAnnotation,
+    shapes: detectionStep !== null ? [{
+      type:'line', x0:detectionStep, x1:detectionStep, y0:0, y1:1,
+      xref:'x', yref:'paper',
+      line:{color:'#f59e0b', width:1, dash:'dot'}
+    }] : [],
+  };
+
+  if (!curvePlotted) {
+    Plotly.newPlot('curve-div', traces, layout, {responsive:true, displayModeBar:false});
+    curvePlotted = true;
+  } else {
+    Plotly.react('curve-div', traces, layout, {responsive:true, displayModeBar:false});
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// INFO BOX
+// ═══════════════════════════════════════════════════════════
+
+function showInfo(n) {
+  document.getElementById('info-title').textContent = n.name;
+  document.getElementById('info-name').textContent = n.name;
+  document.getElementById('info-state').textContent = n.state;
+  document.getElementById('info-hosp').textContent = n.n_hospitals;
+  document.getElementById('info-beds').textContent = n.total_beds.toLocaleString();
+  document.getElementById('info-deg').textContent = '#' + n.deg_rank;
+  document.getElementById('info-btw').textContent = '#' + n.btw_rank;
+  document.getElementById('info-comm').textContent = n.community;
+  const stateStr = {S:'Susceptible',I:'⚠️ Infected',R:'✅ Recovered'}[sir[n.id]] || sir[n.id];
+  document.getElementById('info-status').textContent = stateStr + (sentinels.has(n.id) ? ' · 🟡 Sentinel' : '');
+}
+
+// ═══════════════════════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════════════════════
+
+let toastTimer = null;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.display = 'block';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.style.display='none', 3200);
+}
+
+// ═══════════════════════════════════════════════════════════
+// CONTROLS WIRING
+// ═══════════════════════════════════════════════════════════
+
+document.getElementById('beta-sl').addEventListener('input', function() {
+  document.getElementById('beta-val').textContent = this.value;
+});
+document.getElementById('gamma-sl').addEventListener('input', function() {
+  document.getElementById('gamma-val').textContent = this.value;
+});
+document.getElementById('strategy-sel').addEventListener('change', function() {
+  if (!playing) { nodes.forEach(n => sir[n.id]='S'); sourceNode=null; step=0; detectionStep=null; curveS=[];curveI=[];curveR=[];curveT=[]; placeSentinels(); drawMap(); drawCurve(); updateStats(); }
+});
+document.getElementById('sentinel-count').addEventListener('change', function() {
+  if (!playing) { nodes.forEach(n => sir[n.id]='S'); sourceNode=null; step=0; detectionStep=null; curveS=[];curveI=[];curveR=[];curveT=[]; placeSentinels(); drawMap(); drawCurve(); updateStats(); }
+});
+
+// ═══════════════════════════════════════════════════════════
+// BOOT
+// ═══════════════════════════════════════════════════════════
+
+window.addEventListener('load', () => {
+  init();
+  document.getElementById('status-bar').textContent =
+    '304 HRR nodes · 767 edges · Click any node to seed an outbreak · Sentinels shown in yellow';
+});
+
+window.addEventListener('resize', () => {
+  if (gd) Plotly.relayout('graph-div', {});
+});
+</script>
+</body>
+</html>
