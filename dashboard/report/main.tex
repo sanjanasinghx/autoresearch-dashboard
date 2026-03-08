@@ -1,0 +1,508 @@
+\documentclass[11pt,a4paper]{article}
+
+% packages
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{fontenc}
+\usepackage{parskip}
+\usepackage{microtype}
+\usepackage{mdframed}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds}
+
+% colors
+\definecolor{bg}{HTML}{0d1117}
+\definecolor{card}{HTML}{161b22}
+\definecolor{blue}{HTML}{58a6ff}
+\definecolor{green}{HTML}{3fb950}
+\definecolor{orange}{HTML}{d29922}
+\definecolor{red}{HTML}{f85149}
+\definecolor{purple}{HTML}{bc8cff}
+\definecolor{text}{HTML}{e6edf3}
+\definecolor{muted}{HTML}{8b949e}
+\definecolor{codebg}{HTML}{1c2128}
+\definecolor{border}{HTML}{30363d}
+
+% hyperref
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  citecolor=green,
+  pdftitle={Autoresearch Dashboard: Technical Report},
+  pdfauthor={Sanjana Singh}
+}
+
+% listings (code blocks)
+\lstdefinestyle{code}{
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\small\color{text},
+  keywordstyle=\color{blue}\bfseries,
+  stringstyle=\color{green},
+  commentstyle=\color{muted}\itshape,
+  numberstyle=\tiny\color{muted},
+  frame=single,
+  framerule=0.5pt,
+  rulecolor=\color{border},
+  breaklines=true,
+  showstringspaces=false,
+  tabsize=4,
+  captionpos=b,
+}
+\lstset{style=code}
+
+% section styling
+\titleformat{\section}{\large\bfseries\color{blue}}{}{0em}{}[\color{border}\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries\color{text}}{}{0em}{}
+\titleformat{\subsubsection}{\normalsize\itshape\color{muted}}{}{0em}{}
+
+% header / footer
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\textcolor{muted}{\small Autoresearch Dashboard}}
+\lhead{\textcolor{muted}{\small Sanjana Singh}}
+\rfoot{\textcolor{muted}{\small \thepage}}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{border}\leaders\hrule height \headrulewidth\hfill}}
+
+% inline code
+\newcommand{\code}[1]{\texttt{\textcolor{blue}{#1}}}
+
+% info box
+\newmdenv[
+  backgroundcolor=codebg,
+  linecolor=border,
+  linewidth=1pt,
+  innerleftmargin=12pt,
+  innerrightmargin=12pt,
+  innertopmargin=8pt,
+  innerbottommargin=8pt,
+]{infobox}
+
+\begin{document}
+
+% title page
+\begin{titlepage}
+  \centering
+  \vspace*{2cm}
+  {\Huge\bfseries\color{blue} Autoresearch Dashboard\par}
+  \vspace{0.6cm}
+  {\Large\color{text} Live Monitoring for Autoresearch Runs\par}
+  \vspace{2cm}
+  \includegraphics[width=0.92\textwidth]{figures/architecture.png}
+  \vspace{2cm}
+
+  {\large\color{text} Sanjana Singh\par}
+  \vspace{0.3cm}
+  {\normalsize\color{muted} \texttt{sanjana.singh@iitgn.ac.in}\par}
+  \vspace{0.3cm}
+  {\normalsize\color{muted} March 2026\par}
+  \vspace{0.5cm}
+  {\small\color{muted}
+    Built on Karpathy's \href{https://github.com/karpathy/autoresearch}{autoresearch} |
+    Source: \href{https://github.com/sanjanasinghx/autoresearch-dashboard}{github.com/sanjanasinghx/autoresearch-dashboard}\par
+  }
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+\section{Introduction}
+
+Karpathy's \textit{autoresearch} is an ML experiment loop run by a language model agent. The agent
+edits \code{train.py}, runs a 5-minute GPU training job, checks \textit{val\_bpb} (validation
+bits-per-byte) on a held-out set, and commits the change to a git branch if it helped. It reads its
+own experiment log, picks the next thing to try, and keeps going with no human in the loop.
+
+Even so, you still want to see what it is doing:
+\begin{itemize}[leftmargin=1.5em]
+  \item Is it still improving, or stuck on a plateau?
+  \item Which architecture or optimiser changes has it tried?
+  \item Is GPU memory going up over time?
+  \item Did the last run crash?
+\end{itemize}
+
+I built the \textbf{Autoresearch Dashboard} to answer these. It is a small web app that watches the
+autoresearch repo's files and git history and shows them live. It does not change the agent loop.
+
+\subsection{Design Constraint}
+
+\begin{infobox}
+The dashboard never writes to \code{train.py}, \code{prepare.py}, or
+\code{program.md}. The one optional hook is a \code{.dashboard\_pause} file that the agent can be
+told to check before each experiment.
+\end{infobox}
+
+\section{System Architecture}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/architecture.png}
+  \caption{System architecture. The dashboard (green box) reads files and git history from
+           the autoresearch repo (blue box) and serves a single-page app to the browser
+           (cyan box) over REST and Socket.IO.}
+  \label{fig:arch}
+\end{figure}
+
+There are three parts (Figure~\ref{fig:arch}):
+
+\begin{description}[leftmargin=1.5em, style=nextline]
+  \item[\textcolor{blue}{Autoresearch repo (untouched)}]
+    The agent's working directory: \code{train.py} (edited every experiment),
+    \code{results.tsv} (one row per finished experiment), \code{run.log} (live stdout/stderr),
+    and \code{progress.png} (the agent's own plot).
+  \item[\textcolor{green}{dashboard/ (observer)}]
+    A Flask + Socket.IO server with a background watcher thread. It reads files and git
+    history and pushes WebSocket events to the browser.
+  \item[\textcolor{purple}{Browser}]
+    A single page using Plotly.js and the Socket.IO client, both from CDN, so there is no
+    build step. It updates as experiments finish.
+\end{description}
+
+\subsection{File Structure}
+
+\begin{lstlisting}[language=bash, caption={Dashboard file structure}]
+autoresearch/
+|-- train.py          # edited by the agent (not touched by dashboard)
+|-- prepare.py        # fixed evaluation code (not touched)
+|-- program.md        # human instructions (not touched)
+|-- results.tsv       # parsed by dashboard
+|-- run.log           # tailed by dashboard
+|-- progress.png      # served by dashboard
+`-- dashboard/
+    |-- app.py              # Flask + Socket.IO server
+    |-- watcher.py          # file + git monitoring
+    |-- run_mock_agent.py   # fake agent for testing
+    |-- requirements.txt
+    |-- Dockerfile
+    |-- static/
+    |   |-- dashboard.js    # Plotly + Socket.IO client
+    |   `-- dashboard.css   # dark theme (JetBrains Mono)
+    `-- templates/
+        `-- index.html      # page layout
+\end{lstlisting}
+
+\section{Backend}
+
+\subsection{Results TSV Parser (\texttt{watcher.py})}
+
+\code{parse\_results()} reads \code{results.tsv}, which has the columns
+\code{experiment\_id}, \code{val\_bpb}, \code{peak\_vram\_mb}, \code{commit\_sha},
+\code{timestamp}, and \code{description}, and adds three derived columns:
+
+\begin{lstlisting}[language=Python, caption={Derived columns in parse\_results()}]
+df["cumulative_best"] = df["val_bpb"].expanding().min()
+prev_best = df["cumulative_best"].shift(1)
+df["delta_bpb"] = df["val_bpb"] - prev_best
+
+def classify(row):
+    if pd.isna(row["val_bpb"]):  return "crashed"
+    if row["delta_bpb"] < -1e-6: return "improved"
+    return "no_gain"
+
+df["status"] = df.apply(classify, axis=1)
+\end{lstlisting}
+
+\code{parse\_run\_log()} pulls the last \code{val\_bpb} and \code{peak\_vram\_mb} values out of
+\code{run.log}, flags a crash if it sees a Python traceback, and returns the last 20 lines for the
+live log panel.
+
+\subsection{Git Tracker (\texttt{watcher.py})}
+
+\code{GitTracker} uses GitPython to list \code{autoresearch/*} branches, get commit history with
+insertion/deletion counts (from \code{commit.stats}), and read any \code{val\_bpb} value written in
+a commit message:
+
+\begin{lstlisting}[language=Python, caption={Reading val\_bpb from commit messages}]
+m = re.search(r"val_bpb[:\s=]+([0-9]+\.[0-9]+)", commit.message)
+if m:
+    val_bpb = float(m.group(1))
+\end{lstlisting}
+
+\subsection{File Watcher (\texttt{watcher.py})}
+
+\code{ExperimentWatcher} uses \texttt{watchdog} for filesystem events, plus a poll every 10 seconds
+in case an event is missed. On startup it sets \code{last\_experiment\_count} to the current row
+count, so old experiments are not sent again as ``new'' every time the server restarts.
+
+\begin{lstlisting}[language=Python, caption={Start the count at the current row count}]
+class ExperimentWatcher:
+    def __init__(self, repo_path, socketio):
+        ...
+        # start at the current count so old experiments aren't re-sent
+        tsv_path = os.path.join(repo_path, "results.tsv")
+        self.last_experiment_count = len(parse_results(tsv_path))
+\end{lstlisting}
+
+\subsection{Flask API (\texttt{app.py})}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/api_table.png}
+  \caption{The 14 REST endpoints. GET endpoints only read; the two POST control endpoints
+           (pause/resume) just create or delete a sentinel file.}
+  \label{fig:api}
+\end{figure}
+
+One bug I hit: calling \code{socketio.emit(\ldots, to=sid)} inside a Flask-SocketIO event handler
+did nothing, with no error. Inside a handler you need \code{emit()} imported from
+\code{flask\_socketio}, which sends to the client that triggered the event:
+
+\begin{lstlisting}[language=Python, caption={Emitting inside a Socket.IO handler}]
+from flask_socketio import SocketIO, emit as ws_emit
+
+@socketio.on("connect")
+def on_connect():
+    ws_emit("full_state", {"experiments": records})  # works
+    # socketio.emit(..., to=request.sid)             # silently does nothing
+\end{lstlisting}
+
+\subsection{Event Flow}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/event_flow.png}
+  \caption{Socket.IO events from a file change, through the watcher and server, to the
+           browser. REST calls (grey/red arrows) handle the initial page load and the controls.}
+  \label{fig:events}
+\end{figure}
+
+Table~\ref{tab:events} lists the Socket.IO events the server sends.
+
+\begin{table}[h]
+\centering
+\caption{Socket.IO events and what the frontend does with them}
+\label{tab:events}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Event} & \textbf{Payload} & \textbf{Frontend Action} \\
+\midrule
+\code{new\_experiment}   & \code{\{experiment\_number, val\_bpb, status, \ldots\}} & Add dot to chart, add table row, update stats \\
+\code{new\_commit}       & \code{\{sha, message, timestamp, diff\_stat\}}          & Prepend to git activity feed \\
+\code{progress\_updated} & \code{\{timestamp\}}                                    & Reload \code{progress.png} \\
+\code{run\_log\_update}  & \code{\{tail: [...lines], crashed: bool\}}              & Update live log \\
+\code{agent\_status}     & \code{\{status: "running"|"paused"|"idle"\}}            & Update status indicator \\
+\code{full\_state}       & \code{\{experiments: [...]\}}                           & Fill chart and table on connect \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Frontend}
+
+\subsection{Layout}
+
+The page has five parts:
+
+\begin{enumerate}[leftmargin=1.5em]
+  \item Header: branch selector, status dot (pulses green while running), ETA to the next run,
+        and a pause/resume button.
+  \item Stats bar: total experiments, best val\_bpb, improvement rate, crash count, average
+        $\Delta$bpb, and total runtime.
+  \item Main chart: Plotly scatter plot (Section~\ref{sec:chart}).
+  \item Tabs: Experiment Log, Analytics, and Diff Viewer.
+  \item Right sidebar: \code{progress.png}, git activity feed, and the tail of run.log.
+\end{enumerate}
+
+\subsection{Progress Chart}
+\label{sec:chart}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/progress_chart.png}
+  \caption{The val\_bpb chart. Green dots improved on the best so far, grey dots did not,
+           and orange markers are crashes. The dashed blue line is the running minimum.
+           The y-axis is flipped since lower val\_bpb is better.}
+  \label{fig:chart}
+\end{figure}
+
+The chart draws two Plotly traces per branch: one dot per experiment, coloured by status, and a
+dashed line for \code{cumulative\_best}. In overlay mode each branch gets its own colour.
+
+The chart is only created once Plotly is available. If the CDN hasn't loaded by
+\code{window.load}, the chart area shows a message and the table still renders.
+
+\subsection{CDN Loading Bug}
+
+The first version put the Plotly and Socket.IO \code{<script>} tags in \code{<head>}, booted on
+\code{DOMContentLoaded}, and called \code{initChart()} without a try/catch. On a slow CDN:
+
+\begin{enumerate}[leftmargin=1.5em]
+  \item \code{DOMContentLoaded} fires before the CDN scripts finish loading
+  \item \code{Plotly} is undefined, so \code{Plotly.newPlot()} throws
+  \item the error stops \code{renderAll()} from running
+  \item the table stays empty and the stats stay as dashes
+\end{enumerate}
+
+The fix: CDN scripts go at the end of \code{<body>}, boot happens on \code{window.load} (which
+fires after all scripts load), and chart init is wrapped in try/catch so the table doesn't depend
+on the chart.
+
+\subsection{Analytics Tab}
+
+\begin{figure}[h]
+  \centering
+  \begin{subfigure}[b]{0.52\textwidth}
+    \includegraphics[width=\textwidth]{figures/strategy_dist.png}
+    \caption{Strategy distribution, from keyword matching on experiment descriptions.}
+    \label{fig:strategy}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[b]{0.46\textwidth}
+    \includegraphics[width=\textwidth]{figures/vram_trend.png}
+    \caption{GPU memory across experiments. The dashed blue line is the mean VRAM and the
+             shaded area shows the spread.}
+    \label{fig:vram}
+  \end{subfigure}
+  \caption{Analytics tab charts.}
+\end{figure}
+
+The analytics tab also shows four numbers:
+\begin{itemize}[leftmargin=1.5em]
+  \item experiments per hour, from the timestamp range in \code{results.tsv}
+  \item experiments since the last improvement, i.e. since the last row with \code{status = "improved"}
+  \item longest no-gain streak, from one pass over the status column
+  \item average VRAM, the mean of the non-null \code{peak\_vram\_mb} values
+\end{itemize}
+
+\section{Pause / Resume}
+
+The \textbf{Pause} button sends \code{POST /api/control/pause}, which creates a
+\code{.dashboard\_pause} file in the repo root. \textbf{Resume} deletes it.
+
+For the agent to respect this, add one instruction to \code{program.md}:
+
+\begin{infobox}
+\texttt{Before starting each new experiment, check if a file \textbf{.dashboard\_pause} exists
+in the repo root. If it does, wait and check again every 30 seconds until it is removed.}
+\end{infobox}
+
+This is the only change to the autoresearch setup, and it is optional.
+
+\section{Karpathy's progress.png}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.85\textwidth]{figures/progress.png}
+  \caption{The \texttt{progress.png} made by the autoresearch agent, served from disk at
+           \code{/api/progress-image} and reloaded in the sidebar whenever the file changes.}
+  \label{fig:progress}
+\end{figure}
+
+The sidebar shows the agent's own \code{progress.png} (Figure~\ref{fig:progress}) and reloads it
+on each \code{progress\_updated} event, which the watcher sends when the file changes. It's a
+useful second view next to the Plotly chart.
+
+\section{Multiple Branches}
+
+If the repo has several \code{autoresearch/*} branches (e.g.\ from different runs or different
+\code{program.md} prompts), the branch selector in the header switches between them. Turning on
+\textbf{Overlay} plots all branches on one chart in different colours with a legend, so you can
+compare runs.
+
+\section{Testing and Mock Agent}
+
+\code{run\_mock\_agent.py} fakes the autoresearch loop so the dashboard can be tested without a GPU:
+
+\begin{lstlisting}[language=bash, caption={Running the mock agent}]
+python dashboard/run_mock_agent.py \
+    --repo /path/to/autoresearch \
+    --interval 5 \   # seconds between experiments
+    --count 50        # number of experiments
+\end{lstlisting}
+
+It:
+\begin{itemize}[leftmargin=1.5em]
+  \item appends one row to \code{results.tsv} per interval, with val\_bpb drifting randomly
+  \item crashes 8\% of the time (rows with no val\_bpb)
+  \item writes partial output to \code{run.log} while an experiment is ``running''
+  \item waits while \code{.dashboard\_pause} exists
+\end{itemize}
+
+There is also \code{POST /api/mock/generate}, which writes a 20-row sample \code{results.tsv}
+straight away so you can look at the UI without running anything.
+
+\section{Deployment}
+
+\subsection{Local}
+
+\begin{lstlisting}[language=bash, caption={Local setup}]
+cd autoresearch
+pip install -r dashboard/requirements.txt
+python dashboard/app.py --repo . --port 5050
+# Open http://localhost:5050
+\end{lstlisting}
+
+\subsection{Docker}
+
+\begin{lstlisting}[language=Dockerfile, caption={Dockerfile}]
+FROM python:3.12-slim
+WORKDIR /app
+COPY dashboard/ .
+RUN pip install --no-cache-dir -r requirements.txt
+EXPOSE 5050
+ENV AUTORESEARCH_REPO=/repo
+CMD ["python", "app.py", "--repo", "/repo", "--port", "5050"]
+\end{lstlisting}
+
+\begin{lstlisting}[language=bash, caption={Docker run with the repo mounted}]
+docker build -t autoresearch-dashboard ./dashboard
+docker run -p 5050:5050 \
+    -v /path/to/autoresearch:/repo \
+    autoresearch-dashboard
+\end{lstlisting}
+
+\section{Bugs Fixed}
+
+\begin{table}[h]
+\centering
+\caption{Bugs found during development}
+\label{tab:bugs}
+\begin{tabular}{@{}p{3.2cm}p{5.5cm}p{5.5cm}@{}}
+\toprule
+\textbf{Symptom} & \textbf{Cause} & \textbf{Fix} \\
+\midrule
+Table shows ``No experiments yet'' even though there is data &
+\code{socketio.emit(\ldots, to=sid)} inside a socket handler does nothing, so
+\code{full\_state} never reached the browser &
+Use \code{emit()} from \code{flask\_socketio} inside socket handlers \\
+\addlinespace
+Chart empty, stats show dashes &
+\code{initChart()} had no try/catch; a CDN failure threw and \code{renderAll()} never ran &
+Wrap chart init in try/catch; boot on \code{window.load}; CDN scripts at end of \code{<body>} \\
+\addlinespace
+All old experiments re-sent as ``new'' on server restart &
+\code{last\_experiment\_count} started at 0 instead of the current count &
+Read \code{results.tsv} when the watcher starts and set the count from it \\
+\addlinespace
+Wrong diff +/- line counts &
+Counting \code{+}/\code{-} lines in the raw patch also counted header lines &
+Use \code{commit.stats} from GitPython \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Conclusion}
+
+The dashboard gives a live view of Karpathy's autoresearch loop using a Flask REST API, Socket.IO
+events, a watchdog file monitor, and a GitPython git tracker. It shows experiment progress, git
+history, GPU memory, and what kinds of changes the agent is trying, without modifying the loop.
+
+With the chart, the sortable log, the diff viewer, and the analytics tab, it is easy to tell whether
+the agent is still making progress or whether \code{program.md} needs changing.
+
+\vspace{1em}
+\begin{infobox}
+\textbf{Source code:} \href{https://github.com/sanjanasinghx/autoresearch-dashboard}{github.com/sanjanasinghx/autoresearch-dashboard}\\
+\textbf{Built on:} \href{https://github.com/karpathy/autoresearch}{github.com/karpathy/autoresearch} by Andrej Karpathy
+\end{infobox}
+
+\end{document}

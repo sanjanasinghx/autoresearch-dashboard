@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.pyo
+.dashboard_pause
+results.tsv
+run.log
+temp/
+*.egg-info
