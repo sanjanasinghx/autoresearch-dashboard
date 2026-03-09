@@ -66,12 +66,18 @@ function initSocketIO() {
   socket.on("disconnect", () => setStatus("idle"));
 
   socket.on("full_state", (data) => {
-    console.log("[dashboard] full_state received:", data.experiments?.length, "experiments");
-    if (Array.isArray(data.experiments)) {
-      state.experiments = data.experiments;
-      tryInitChart();
-      renderAll();
+    const incoming = data.experiments;
+    console.log("[dashboard] full_state received:", incoming?.length, "experiments");
+    if (!Array.isArray(incoming)) return;
+    // Only overwrite non-empty local state if the server has at least as many rows.
+    // This prevents a stale/failed parse on the server from blanking the table.
+    if (incoming.length === 0 && state.experiments.length > 0) {
+      console.warn("[dashboard] full_state got 0 experiments but local state has data — ignoring");
+      return;
     }
+    state.experiments = incoming;
+    tryInitChart();
+    renderAll();
   });
 
   socket.on("git_history", (data) => {
@@ -79,6 +85,12 @@ function initSocketIO() {
   });
 
   socket.on("new_experiment", (exp) => {
+    // Normalize numeric fields that _row_to_dict may have stringified (numpy int64 → str)
+    if (exp.experiment_number != null) exp.experiment_number = Number(exp.experiment_number);
+    if (exp.val_bpb != null) exp.val_bpb = Number(exp.val_bpb);
+    if (exp.peak_vram_mb != null) exp.peak_vram_mb = Number(exp.peak_vram_mb);
+    if (exp.cumulative_best != null) exp.cumulative_best = Number(exp.cumulative_best);
+    if (exp.delta_bpb != null) exp.delta_bpb = Number(exp.delta_bpb);
     state.experiments.push(exp);
     renderChart();
     renderTable();
@@ -126,6 +138,9 @@ async function loadExperiments(branch) {
     console.log("[dashboard] loadExperiments:", d.total, "experiments");
     state.experiments = d.experiments || [];
     if (branch) state.branchData[branch] = state.experiments;
+    // Render immediately so REST data is visible even if Socket.IO fires late
+    tryInitChart();
+    renderAll();
   } catch (e) {
     console.warn("[dashboard] loadExperiments failed:", e);
   }
