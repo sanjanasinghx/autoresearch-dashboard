@@ -386,10 +386,14 @@ class ExperimentWatcher:
         d = {}
         for col in row.index:
             val = row[col]
-            if pd.isna(val) if not isinstance(val, str) else False:
+            # Check for NA/NaN (only for non-strings — isna("") raises nothing but is False)
+            if not isinstance(val, str) and pd.isna(val):
                 d[col] = None
             elif hasattr(val, "isoformat"):
                 d[col] = val.isoformat()
+            elif hasattr(val, "item"):
+                # numpy scalar (int64, float64, bool_) → native Python type
+                d[col] = val.item()
             else:
                 try:
                     d[col] = float(val) if isinstance(val, (int, float)) else str(val)
